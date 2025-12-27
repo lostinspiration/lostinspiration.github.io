@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>Lost Inspiration</title><description>A Memoir</description><link>https://www.kichka.dev/</link><language>en</language><item><title>SQL Server Shell Games</title><link>https://www.kichka.dev/posts/sql-shell-games/</link><guid isPermaLink="true">https://www.kichka.dev/posts/sql-shell-games/</guid><description>Delete large amounts of data from a huge database table with this one simple trick</description><pubDate>Sat, 20 Dec 2025 00:00:00 GMT</pubDate><content:encoded>&lt;h1&gt;Sql Partition QUICK Move&lt;/h1&gt;
+&lt;p&gt;You can use this on any version of sql server, even if table partioning is not supported. This is because under the hood every table is a single partition. With this you can quickly move data to an empty table and with some &quot;shell games&quot; instantly swap back to the old table. Think of it as a pointer swap in c.&lt;/p&gt;
+&lt;p&gt;I have used this many times to remove billions of rows by selecting out only the few hundred thousand that I wanted to keep and swapping table partition pointers. The swap is instant and there is little to no downtime.&lt;/p&gt;
+&lt;p&gt;Let&apos;s walk through an example of the process.&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;-- create test set of tables
+CREATE TABLE dbo.TEST1(id INT)
+CREATE TABLE dbo.TEST2(id INT)
+
+-- populate test1 with 10000 rows of data
+DECLARE @i INT = 0
+WHILE @i &amp;lt; 10000
+BEGIN
+    INSERT INTO dbo.TEST1(id)
+    VALUES(@i)
+    SELECT @i += 1
+END
+
+-- view current state of things
+SELECT * FROM dbo.TEST1
+SELECT * FROM dbo.TEST2
+
+-- switch data to second table
+ALTER TABLE dbo.TEST1
+SWITCH TO dbo.TEST2
+
+-- view current state of things
+SELECT * FROM dbo.TEST1
+SELECT * FROM dbo.TEST2
+
+-- ===================================
+-- TRUNCATE PART OF A TABLE SHELL GAME
+-- ===================================
+-- move out set of data i want to keep
+SELECT TOP 1000 * INTO dbo.TEMP_SHELL FROM dbo.TEST2
+
+-- truncate orig table
+TRUNCATE TABLE dbo.TEST2
+
+-- move data metadata from shell to orig table
+ALTER TABLE dbo.TEMP_SHELL
+SWITCH TO dbo.TEST2
+
+-- view current state of things
+SELECT * FROM dbo.TEMP_SHELL
+SELECT * FROM dbo.TEST2
+
+-- remove shell table
+DROP TABLE dbo.TEMP_SHELL
+
+-- view current state of things
+SELECT * FROM dbo.TEST1
+SELECT * FROM dbo.TEST2
+
+-- cleanup
+DROP TABLE dbo.TEST1
+DROP TABLE dbo.TEST2
+&lt;/code&gt;&lt;/pre&gt;
+</content:encoded></item><item><title>Start of a Journey</title><link>https://www.kichka.dev/posts/start-of-a-journey/</link><guid isPermaLink="true">https://www.kichka.dev/posts/start-of-a-journey/</guid><description>Today I embark on a new journey of writing down my thoughts and experiences in software development</description><pubDate>Mon, 15 Dec 2025 00:00:00 GMT</pubDate><content:encoded>&lt;h1&gt;A new Beginning&lt;/h1&gt;
+&lt;p&gt;For a long time now I have been wanting to start writing my thoughts down on paper. I have a physical notebook where my thoughts and notes are haphazardly written which has this big downside of not being very searchable.&lt;/p&gt;
+&lt;p&gt;So over the next couple of weeks I will be working on digitizing these notes and thoughts here.&lt;/p&gt;
+&lt;p&gt;Come join me on this journey of inspiration lost and found.&lt;/p&gt;
+&lt;p&gt;~ Stephen&lt;/p&gt;
+</content:encoded></item></channel></rss>
