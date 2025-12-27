@@ -1,4 +1,134 @@
-<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>Lost Inspiration</title><description>A Memoir</description><link>https://www.kichka.dev/</link><language>en</language><item><title>SQL Server Shell Games</title><link>https://www.kichka.dev/posts/sql-shell-games/</link><guid isPermaLink="true">https://www.kichka.dev/posts/sql-shell-games/</guid><description>DELETE large amounts of data from a huge database table with this one simple trick</description><pubDate>Sat, 20 Dec 2025 00:00:00 GMT</pubDate><content:encoded>&lt;h1&gt;SQL Partition SWITCH Operation&lt;/h1&gt;
+<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>Lost Inspiration</title><description>A Memoir</description><link>https://www.kichka.dev/</link><language>en</language><item><title>SQL Server See What&apos;s Running</title><link>https://www.kichka.dev/posts/sql-see-whats-running/</link><guid isPermaLink="true">https://www.kichka.dev/posts/sql-see-whats-running/</guid><description>This is a collection of SQL snippets for tracking down what is running and what might be misbehaving</description><pubDate>Mon, 22 Dec 2025 00:00:00 GMT</pubDate><content:encoded>&lt;p&gt;Below are a collection of SQL query that I use to diagnose and trace what is running on the server.&lt;/p&gt;
+&lt;p&gt;This is my goto snippet to quickly identify what is running and the current state of the server. It will provide you cpu and disk read time as well as the query plans which can be used to identify problem children.&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;DROP TABLE #PERFSNAP
+
+SELECT
+    r.cpu_time,
+    r.logical_reads,
+    r.session_id 
+INTO #TEMP
+FROM sys.dm_exec_sessions s 
+JOIN sys.dm_exec_requests r 
+ON s.session_id = r.session_id
+--AND s.last_request_start_time = r.start_time
+WHERE is_user_process = 1 
+ 
+WAITFOR DELAY &apos;00:00:01&apos;
+
+SELECT 
+    [text] = SUBSTRING(
+        h.text, 
+        (r.statement_start_offset / 2) + 1,
+        ((  CASE r.statement_end_offset 
+            WHEN -1 
+            THEN DATALENGTH(h.text)
+            ELSE r.statement_end_offset
+            END - r.statement_start_offset) / 2) + 1
+    ),
+    [cpu_diff] = r.cpu_time - t.cpu_time, 
+    [read_diff] = r.logical_reads - t.logical_reads,
+    p.query_plan,
+    r.wait_type,
+    r.wait_time,
+    r.last_wait_type,
+    r.wait_resource,
+    r.command,
+    [database] = DB_NAME(r.database_id),
+    r.blocking_session_id,
+    r.granted_query_memory,
+    r.session_id,
+    r.reads,
+    r.writes,
+    r.row_count,
+    s.[host_name],
+    s.program_name,
+    s.login_name
+INTO #PERFSNAP
+FROM sys.dm_exec_sessions s 
+JOIN sys.dm_exec_requests r 
+ON s.session_id = r.session_id
+AND s.last_request_start_time = r.start_time
+FULL JOIN #TEMP t 
+ON t.session_id = s.session_id
+CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) h
+CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) p
+ORDER BY 3 desc
+
+DROP TABLE #TEMP
+
+SELECT * FROM #PERFSNAP
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;This is another variation of the above code snippet just without the cpu and read timing, and query plans.&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;BEGIN
+    -- Do not lock anything, and do not get held up by any locks.
+    SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED
+
+    -- What SQL Statements Are Currently Running?
+    SELECT
+        [spid] = session_Id,
+        ecid,
+        [database] = DB_NAME(sp.dbid),
+        [user] = nt_username,
+        [status] = er.status,
+        [wait] = wait_type,
+        [individual_query] = SUBSTRING(
+            qt.text, 
+            er.statement_start_offset / 2,
+            (   CASE 
+                WHEN er.statement_end_offset = -1
+                THEN LEN(CONVERT(NVARCHAR(MAX), qt.text)) * 2
+                ELSE er.statement_end_offset 
+                END - er.statement_start_offset
+            ) / 2
+        ),
+        [parent_query] = qt.text,
+        program_name,
+        hostname,
+        nt_domain,
+        start_time
+    FROM sys.dm_exec_requests er
+    JOIN sys.sysprocesses sp
+    ON er.session_id = sp.spid
+    CROSS APPLY sys.dm_exec_sql_text(er.sql_handle) qt
+    WHERE session_Id &amp;gt; 50 -- ignore system spids
+    AND session_Id NOT IN (@@SPID) -- ignore this current statement
+    --AND session_Id IN ( 126 )
+    --AND DB_NAME(sp.dbid) = &apos;&apos;
+    ORDER BY 1, 2
+END
+
+--EXECUTE sp_who2 85
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;These snips will help track down different types of wait resources and their reasons.&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;--KEY: 8:281474980315136 (4102a73ebc59)
+--( Key Wait Resource )--
+SELECT 
+    [TableName] = o.name, 
+    [IndexName] = i.name,
+    [SchemaName] = SCHEMA_NAME(o.schema_id)
+FROM sys.partitions p 
+JOIN sys.objects o 
+ON p.OBJECT_ID = o.OBJECT_ID 
+JOIN sys.indexes i 
+ON p.OBJECT_ID = i.OBJECT_ID
+AND p.index_id = i.index_id 
+WHERE p.hobt_id = 281474980315136
+
+--( Page Wait Resource )--
+SELECT DB_NAME(68)
+
+-- select the database based on the output above statement then execute the below statement
+DBCC traceon (3604)
+GO
+-- Database_id, file_id, page_id 
+DBCC page (68, 1, 492478) 
+
+--( Object Wait Resource )--
+--OBJECT: 8:1954106002:0 
+SELECT OBJECT_NAME(1954106002)
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;~ SK&lt;/p&gt;
+</content:encoded></item><item><title>SQL Server Shell Games</title><link>https://www.kichka.dev/posts/sql-shell-games/</link><guid isPermaLink="true">https://www.kichka.dev/posts/sql-shell-games/</guid><description>DELETE large amounts of data from a huge database table with this one simple trick</description><pubDate>Sat, 20 Dec 2025 00:00:00 GMT</pubDate><content:encoded>&lt;h1&gt;SQL Partition SWITCH Operation&lt;/h1&gt;
 &lt;p&gt;With the power of the table partitioning &lt;code&gt;SWITCH&lt;/code&gt; operation you can swap table metadata pointers instantly.&lt;/p&gt;
 &lt;p&gt;This can be used on any modern edition of sql server, even if table partioning is not supported. This is because under the hood every table is a single partition. With this you can quickly move data to an empty table and with some &quot;shell games&quot; instantly swap back to the old table.&lt;/p&gt;
 &lt;p&gt;I have used this many times to remove billions of rows by selecting out only the few hundred thousand that I wanted to keep into a new table and swapping table partition pointers. The swap is instant and there is little to no downtime.&lt;/p&gt;
