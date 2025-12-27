@@ -1,6 +1,7 @@
-<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>Lost Inspiration</title><description>A Memoir</description><link>https://www.kichka.dev/</link><language>en</language><item><title>SQL Server Shell Games</title><link>https://www.kichka.dev/posts/sql-shell-games/</link><guid isPermaLink="true">https://www.kichka.dev/posts/sql-shell-games/</guid><description>Delete large amounts of data from a huge database table with this one simple trick</description><pubDate>Sat, 20 Dec 2025 00:00:00 GMT</pubDate><content:encoded>&lt;h1&gt;Sql Partition QUICK Move&lt;/h1&gt;
-&lt;p&gt;You can use this on any version of sql server, even if table partioning is not supported. This is because under the hood every table is a single partition. With this you can quickly move data to an empty table and with some &quot;shell games&quot; instantly swap back to the old table. Think of it as a pointer swap in c.&lt;/p&gt;
-&lt;p&gt;I have used this many times to remove billions of rows by selecting out only the few hundred thousand that I wanted to keep and swapping table partition pointers. The swap is instant and there is little to no downtime.&lt;/p&gt;
+<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>Lost Inspiration</title><description>A Memoir</description><link>https://www.kichka.dev/</link><language>en</language><item><title>SQL Server Shell Games</title><link>https://www.kichka.dev/posts/sql-shell-games/</link><guid isPermaLink="true">https://www.kichka.dev/posts/sql-shell-games/</guid><description>DELETE large amounts of data from a huge database table with this one simple trick</description><pubDate>Sat, 20 Dec 2025 00:00:00 GMT</pubDate><content:encoded>&lt;h1&gt;SQL Partition SWITCH Operation&lt;/h1&gt;
+&lt;p&gt;With the power of the table partitioning &lt;code&gt;SWITCH&lt;/code&gt; operation you can swap table metadata pointers instantly.&lt;/p&gt;
+&lt;p&gt;This can be used on any modern edition of sql server, even if table partioning is not supported. This is because under the hood every table is a single partition. With this you can quickly move data to an empty table and with some &quot;shell games&quot; instantly swap back to the old table.&lt;/p&gt;
+&lt;p&gt;I have used this many times to remove billions of rows by selecting out only the few hundred thousand that I wanted to keep into a new table and swapping table partition pointers. The swap is instant and there is little to no downtime.&lt;/p&gt;
 &lt;p&gt;Let&apos;s walk through an example of the process.&lt;/p&gt;
 &lt;pre&gt;&lt;code&gt;-- create test set of tables
 CREATE TABLE dbo.TEST1(id INT)
@@ -26,10 +27,12 @@ SWITCH TO dbo.TEST2
 -- view current state of things
 SELECT * FROM dbo.TEST1
 SELECT * FROM dbo.TEST2
-
--- ===================================
--- TRUNCATE PART OF A TABLE SHELL GAME
--- ===================================
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;Now that we have an idea of how this works, you can imagine that you have a table with billions of rows that you want to delete. DELETEs have to acquire a lock on the table at some level potentially preventing others from interacting with it. SELECTs however are much quicker and can be done in parallel without affecting others.&lt;/p&gt;
+&lt;p&gt;Below, we select out just the handful of rows that we want, truncate the original table, then swap the table pointers.&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;-- =========================
+-- TRUNCATE TABLE SHELL GAME
+-- =========================
 -- move out set of data i want to keep
 SELECT TOP 1000 * INTO dbo.TEMP_SHELL FROM dbo.TEST2
 
@@ -55,9 +58,13 @@ SELECT * FROM dbo.TEST2
 DROP TABLE dbo.TEST1
 DROP TABLE dbo.TEST2
 &lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;This process has saved me countless hours of data processing and downtime.&lt;/p&gt;
+&lt;p&gt;I have used it in ETLs, ad-hoc table cleanups, as well as to create a simple data archiving process that moves old data by quarter into another table for historical reporting keeping the primary table lean.&lt;/p&gt;
+&lt;p&gt;This may not be such a concern now that Microsoft has opened up the table partitioning feature to all editions of SQL Server, but still useful for situations where the complexity of managing table partitioning outweighs the benifits.&lt;/p&gt;
+&lt;p&gt;~ SK&lt;/p&gt;
 </content:encoded></item><item><title>Start of a Journey</title><link>https://www.kichka.dev/posts/start-of-a-journey/</link><guid isPermaLink="true">https://www.kichka.dev/posts/start-of-a-journey/</guid><description>Today I embark on a new journey of writing down my thoughts and experiences in software development</description><pubDate>Mon, 15 Dec 2025 00:00:00 GMT</pubDate><content:encoded>&lt;h1&gt;A new Beginning&lt;/h1&gt;
 &lt;p&gt;For a long time now I have been wanting to start writing my thoughts down on paper. I have a physical notebook where my thoughts and notes are haphazardly written which has this big downside of not being very searchable.&lt;/p&gt;
 &lt;p&gt;So over the next couple of weeks I will be working on digitizing these notes and thoughts here.&lt;/p&gt;
 &lt;p&gt;Come join me on this journey of inspiration lost and found.&lt;/p&gt;
-&lt;p&gt;~ Stephen&lt;/p&gt;
+&lt;p&gt;~ SK&lt;/p&gt;
 </content:encoded></item></channel></rss>
