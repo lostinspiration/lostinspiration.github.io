@@ -1,4 +1,72 @@
-<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>Lost Inspiration</title><description>A Memoir</description><link>https://www.kichka.dev/</link><language>en</language><item><title>SQL Server See What&apos;s Running</title><link>https://www.kichka.dev/posts/sql-see-whats-running/</link><guid isPermaLink="true">https://www.kichka.dev/posts/sql-see-whats-running/</guid><description>This is a collection of SQL snippets for tracking down what is running and what might be misbehaving</description><pubDate>Mon, 22 Dec 2025 00:00:00 GMT</pubDate><content:encoded>&lt;p&gt;Below are a collection of SQL query that I use to diagnose and trace what is running on the server.&lt;/p&gt;
+<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>Lost Inspiration</title><description>A Memoir</description><link>https://www.kichka.dev/</link><language>en</language><item><title>SQL Server Temporal Tables</title><link>https://www.kichka.dev/posts/sql-temporal-tables/</link><guid isPermaLink="true">https://www.kichka.dev/posts/sql-temporal-tables/</guid><pubDate>Tue, 23 Dec 2025 00:00:00 GMT</pubDate><content:encoded>&lt;h1&gt;System Version Query – How To&lt;/h1&gt;
+&lt;pre&gt;&lt;code&gt;SELECT * 
+FROM dbo.MyTable
+
+--( at time zone does not work on literals, use var to work around this limitation )--
+DECLARE @AsOf DATETIME2 = &apos;4/8/2019 9:43AM&apos;
+SELECT @AsOf = @AsOf AT TIME ZONE &apos;Eastern Standard Time&apos; AT TIME ZONE &apos;UTC&apos;
+
+SELECT *
+FROM dbo.MyTable
+FOR SYSTEM_TIME AS OF @AsOf --( includes changes where the record was valid during the given time )--
+--FOR SYSTEM_TIME ALL --( includes all changes )--
+--FOR SYSTEM_TIME FROM @StartDate TO @EndDate --( exclusive of start and end dates )--
+--FOR SYSTEM_TIME BETWEEN @StartDate AND @EndDate --( inclusive of start and end dates )--
+
+--( query directly from the history table )--
+SELECT *
+FROM dbo.MyTableHistory
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h1&gt;Enable System Versioning&lt;/h1&gt;
+&lt;p&gt;This snippet will add the required columns &lt;code&gt;ValidFrom&lt;/code&gt; and &lt;code&gt;ValidTo&lt;/code&gt; and enable system versioning with a history table of &lt;code&gt;{Schema}.{TableName}History&lt;/code&gt;.&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;DECLARE
+	@TableName SYSNAME = &apos;MyTable&apos;,
+	@TableSchema SYSNAME = &apos;dbo&apos;,
+	@IsDebug BIT = 0
+
+DECLARE @Sql NVARCHAR(MAX) = &apos;&apos;
+
+--( add sys version columns and enable )--
+SELECT @Sql = &apos;
+ALTER TABLE [{0}].[{1}]
+ADD [ValidFrom] DATETIME2 GENERATED ALWAYS AS ROW START HIDDEN NOT NULL CONSTRAINT [DF[{0}]].[{1}]].[ValidFrom]]]  DEFAULT (sysutcdatetime()),
+[ValidTo] DATETIME2 GENERATED ALWAYS AS ROW END HIDDEN NOT NULL CONSTRAINT [DF[{0}]].[{1}]].[ValidTo]]] DEFAULT (CONVERT([datetime2](0),&apos;&apos;9999-12-31 23:59:59&apos;&apos;)),
+PERIOD FOR SYSTEM_TIME([ValidFrom], [ValidTo])
+
+ALTER TABLE [{0}].[{1}]
+SET (SYSTEM_VERSIONING = ON (HISTORY_TABLE = [{0}].[{1}History]));
+&apos;
+SELECT @Sql = REPLACE(@Sql, &apos;{0}&apos;, @TableSchema)
+SELECT @Sql = REPLACE(@Sql, &apos;{1}&apos;, @TableName)
+
+IF @IsDebug = 1
+	PRINT (@Sql)
+IF @IsDebug = 0
+	EXEC (@Sql)
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h1&gt;Disable System Versioning&lt;/h1&gt;
+&lt;p&gt;This will disable system versioning on the given table.&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;DECLARE
+	@TableName SYSNAME = &apos;MyTable&apos;,
+	@TableSchema SYSNAME = &apos;dbo&apos;,
+	@IsDebug BIT = 0
+
+DECLARE @Sql NVARCHAR(MAX) = &apos;&apos;
+
+SELECT @Sql = &apos;
+ALTER TABLE [{0}].[{1}]
+SET (SYSTEM_VERSIONING = OFF)
+&apos;
+SELECT @Sql = REPLACE(@Sql, &apos;{0}&apos;, @TableSchema)
+SELECT @Sql = REPLACE(@Sql, &apos;{1}&apos;, @TableName)
+
+IF @IsDebug = 1
+	PRINT (@Sql)
+IF @IsDebug = 0
+	EXEC (@Sql)
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;~ SK&lt;/p&gt;
+</content:encoded></item><item><title>SQL Server See What&apos;s Running</title><link>https://www.kichka.dev/posts/sql-see-whats-running/</link><guid isPermaLink="true">https://www.kichka.dev/posts/sql-see-whats-running/</guid><description>This is a collection of SQL snippets for tracking down what is running and what might be misbehaving</description><pubDate>Mon, 22 Dec 2025 00:00:00 GMT</pubDate><content:encoded>&lt;p&gt;Below are a collection of SQL query that I use to diagnose and trace what is running on the server.&lt;/p&gt;
 &lt;p&gt;This is my goto snippet to quickly identify what is running and the current state of the server. It will provide you cpu and disk read time as well as the query plans which can be used to identify problem children.&lt;/p&gt;
 &lt;pre&gt;&lt;code&gt;DROP TABLE #PERFSNAP
 
