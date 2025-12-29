@@ -1,4 +1,382 @@
-<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>Lost Inspiration</title><description>A Memoir</description><link>https://www.kichka.dev/</link><language>en</language><item><title>SQL Server Temporal Tables</title><link>https://www.kichka.dev/posts/sql-temporal-tables/</link><guid isPermaLink="true">https://www.kichka.dev/posts/sql-temporal-tables/</guid><description>SQL snips for querying and enabling temporal tables</description><pubDate>Tue, 23 Dec 2025 00:00:00 GMT</pubDate><content:encoded>&lt;h1&gt;System Version Query – How To&lt;/h1&gt;
+<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>Lost Inspiration</title><description>A Memoir</description><link>https://www.kichka.dev/</link><language>en</language><item><title>SQL Voodoo Black Magic</title><link>https://www.kichka.dev/posts/sql-voodoo-blackmagic/</link><guid isPermaLink="true">https://www.kichka.dev/posts/sql-voodoo-blackmagic/</guid><description>SQL snips for querying sysobjects table and using the results to dynamically generate SQL query</description><pubDate>Sat, 27 Dec 2025 00:00:00 GMT</pubDate><content:encoded>&lt;p&gt;Sometimes you want to be able to dynamically construct table definitions to perform different actions, such as creating a copy of a table on a different database, compare table schema, sync table data where the tables are not guarenteed to have the same schema, generate update, merge, select and insert statements and not have to keep adjusting the code as the table schema drifts.&lt;/p&gt;
+&lt;p&gt;Below we will go through a few of these scenarios, but first lets define the &quot;black magic&quot; that the rest of the examples will build upon.&lt;/p&gt;
+&lt;h1&gt;Black Magic&lt;/h1&gt;
+&lt;p&gt;These are the exact same query but produce a &lt;code&gt;#Source&lt;/code&gt; and &lt;code&gt;#Destination&lt;/code&gt; temp tables that the examples will use.&lt;/p&gt;
+&lt;h2&gt;Select Source Schema&lt;/h2&gt;
+&lt;pre&gt;&lt;code&gt;DECLARE
+	@TableName SYSNAME = &apos;MyTable&apos;,
+	@TableSchema SYSNAME = &apos;dbo&apos;
+
+IF OBJECT_ID(&apos;tempdb..#Source&apos;) IS NOT NULL
+	DROP TABLE #Source
+
+SELECT
+	[ColumnId] = sc.[column_id],
+	[ColumnName] = sc.[name] COLLATE DATABASE_DEFAULT,
+	-- adjust timestamp type to varbinary
+	[Type] = CASE WHEN st.[user_type_id] = 189 THEN &apos;varbinary&apos; ELSE st.[name] END COLLATE DATABASE_DEFAULT,
+	-- adjust nvarchar length to half what is reported since it takes 2 bytes to store unicode, and adjust timestamp to the translated varbinary length
+	[Length] = CASE WHEN sc.[max_length] = -1 THEN -1 WHEN st.[user_type_id] = 231 THEN sc.[max_length] / 2 WHEN st.[user_type_id] = 189 THEN 85 ELSE sc.[max_length] END,
+	[Precision] = sc.[precision], 
+	[Scale] = sc.[scale],
+	[IsNullable] = sc.[is_nullable]
+INTO #Source
+FROM [sys].[objects] so
+JOIN [sys].[columns] sc
+ON so.[object_id] = sc.[object_id]
+JOIN [sys].[types] st
+ON sc.[user_type_id] = st.[user_type_id]
+JOIN [sys].[schemas] ss
+ON so.[schema_id] = ss.[schema_id]
+WHERE so.[name] = @TableName AND ss.[name] = @TableSchema
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h2&gt;Select Destination Schema&lt;/h2&gt;
+&lt;pre&gt;&lt;code&gt;DECLARE
+	@TableName SYSNAME = &apos;MyTable&apos;,
+	@TableSchema SYSNAME = &apos;dbo&apos;
+
+IF OBJECT_ID(&apos;tempdb..#Destination&apos;) IS NOT NULL
+	DROP TABLE #Destination
+
+SELECT
+	[ColumnId] = sc.[column_id],
+	[ColumnName] = sc.[name] COLLATE DATABASE_DEFAULT,
+	-- adjust timestamp type to varbinary
+	[Type] = CASE WHEN st.[user_type_id] = 189 THEN &apos;varbinary&apos; ELSE st.[name] END COLLATE DATABASE_DEFAULT,
+	-- adjust nvarchar length to half what is reported since it takes 2 bytes to store unicode, and adjust timestamp to the translated varbinary length
+	[Length] = CASE WHEN sc.[max_length] = -1 THEN -1 WHEN st.[user_type_id] = 231 THEN sc.[max_length] / 2 WHEN st.[user_type_id] = 189 THEN 85 ELSE sc.[max_length] END,
+	[Precision] = sc.[precision], 
+	[Scale] = sc.[scale],
+	[IsNullable] = sc.[is_nullable]
+INTO #Destination
+FROM [sys].[objects] so
+JOIN [sys].[columns] sc
+ON so.[object_id] = sc.[object_id]
+JOIN [sys].[types] st
+ON sc.[user_type_id] = st.[user_type_id]
+JOIN [sys].[schemas] ss
+ON so.[schema_id] = ss.[schema_id]
+WHERE so.[name] = @TableName AND ss.[name] = @TableSchema
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h1&gt;Example – Create Table Copy&lt;/h1&gt;
+&lt;p&gt;Create a copy of the table using the source schema information possibly injecting extra columns in the copy.&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;DECLARE
+	@TableName SYSNAME = &apos;MyTable&apos;,
+	@TableSchema SYSNAME = &apos;dbo&apos;,
+	@IsDebug BIT = 0
+
+DECLARE
+	@DataType NVARCHAR(200),
+	@Length INT,
+	@Precision INT,
+	@Scale INT,
+	@IsNullable INT,
+	@ColumnName NVARCHAR(200),
+	@Statement NVARCHAR(MAX) = &apos;&apos;
+
+DECLARE x CURSOR FAST_FORWARD FOR
+	SELECT [ColumnName], [Type], [Length], [Precision], [Scale], [IsNullable]
+	FROM #Source
+	ORDER BY [ColumnId]
+
+OPEN x
+FETCH NEXT FROM x INTO @ColumnName, @DataType, @Length, @Precision, @Scale, @IsNullable
+WHILE @@FETCH_STATUS = 0
+BEGIN
+	DECLARE @NullClause NVARCHAR(10) = &apos; NULL&apos;
+	IF @IsNullable = 0
+	BEGIN
+		SELECT @NullClause = &apos; NOT NULL&apos;
+	END
+
+	IF @DataType = &apos;timestamp&apos;
+	BEGIN
+		SELECT @DataType = &apos;varbinary&apos;
+		SELECT @Length = 85
+	END
+
+	IF @DataType IN(&apos;char&apos;,&apos;varchar&apos;,&apos;binary&apos;,&apos;varbinary&apos;,&apos;nvarchar&apos;,&apos;nchar&apos;)
+	BEGIN
+		SELECT @Statement = @Statement + &apos;[&apos; + @ColumnName + &apos;] &apos; + @DataType + &apos;(&apos; + ISNULL(NULLIF(CONVERT(NVARCHAR,@Length), &apos;-1&apos;), &apos;MAX&apos;) + &apos;)&apos; + @NullClause + &apos;,&apos;
+	END
+	ELSE IF @DataType IN(&apos;decimal&apos;,&apos;numeric&apos;)
+	BEGIN
+		SELECT @Statement = @Statement + &apos;[&apos; + @ColumnName + &apos;] &apos; + @DataType + &apos;(&apos; + CONVERT(NVARCHAR,@Precision) + &apos;,&apos; + CONVERT(NVARCHAR,@Scale) + &apos;)&apos;  + @NullClause + &apos;,&apos;
+	END
+	ELSE
+	BEGIN
+		SELECT @Statement = @Statement + &apos;[&apos; + @ColumnName + &apos;] &apos; + @DataType + @NullClause + &apos;,&apos;
+	END
+FETCH NEXT FROM x INTO @ColumnName, @DataType, @Length, @Precision, @Scale, @IsNullable
+END
+CLOSE x
+DEALLOCATE x
+
+SELECT @Statement = SUBSTRING(@Statement, 1, LEN(@Statement) - 1)
+
+DECLARE @Sql NVARCHAR(MAX) = &apos;&apos;
+
+SELECT @Sql = &apos;
+CREATE TABLE [{0}].[{1}](
+{2}
+)&apos;
+
+SELECT @Sql = REPLACE(@Sql, &apos;{0}&apos;, @TableSchema)
+SELECT @Sql = REPLACE(@Sql, &apos;{1}&apos;, @TableName)
+SELECT @Sql = REPLACE(@Sql, &apos;{2}&apos;, @Statement)
+
+IF @IsDebug = 1
+	PRINT (@Sql)
+IF @IsDebug = 0
+	EXEC (@Sql)
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h1&gt;Example – Schema Diff&lt;/h1&gt;
+&lt;p&gt;Below are a few ways you can use this information to find;&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;columns that have changed&lt;/li&gt;
+&lt;li&gt;columns that are missing from the destination&lt;/li&gt;
+&lt;li&gt;columns that have been removed from the source and not the destination&lt;/li&gt;
+&lt;li&gt;columns that both tables have in common&lt;/li&gt;
+&lt;/ul&gt;
+&lt;pre&gt;&lt;code&gt;IF OBJECT_ID(&apos;tempdb..#CHANGED_COLUMNS&apos;) IS NOT NULL
+	DROP TABLE #CHANGED_COLUMNS
+
+SELECT
+    [ColumnName],
+    [Type],
+    [Length],
+    [Precision], 
+    [Scale]
+INTO #CHANGED_COLUMNS
+FROM #Source
+EXCEPT
+SELECT
+    [ColumnName],
+    [Type],
+    [Length],
+    [Precision], 
+    [Scale]
+FROM #Destination
+
+
+IF OBJECT_ID(&apos;tempdb..#MISSING_COLUMNS&apos;) IS NOT NULL
+	DROP TABLE #MISSING_COLUMNS
+
+SELECT
+    [ColumnName]
+INTO #MISSING_COLUMNS
+FROM #Source
+EXCEPT
+SELECT
+    [ColumnName]
+FROM #Destination
+
+IF OBJECT_ID(&apos;tempdb..#DELETED_COLUMNS&apos;) IS NOT NULL
+	DROP TABLE #DELETED_COLUMNS
+
+SELECT
+    [ColumnName]
+INTO #DELETED_COLUMNS
+FROM #Destination
+EXCEPT
+SELECT
+    [ColumnName]
+FROM #SOURCE
+
+IF OBJECT_ID(&apos;tempdb..#SHARED_COLUMNS&apos;) IS NOT NULL
+	DROP TABLE #SHARED_COLUMNS
+
+SELECT
+    [ColumnName]
+INTO #SHARED_COLUMNS
+FROM #Source
+INTERSECT
+SELECT
+    [ColumnName]
+FROM #Destination
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h1&gt;Example – Sync Destination Schema with Source&lt;/h1&gt;
+&lt;p&gt;Here we will cursor over the columns that are missing and either create a series of &lt;code&gt;ALTER TABLE&lt;/code&gt; statements to bring the destination table in sync with the source.&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;DECLARE
+	@TableName SYSNAME = &apos;MyTable&apos;,
+	@TableSchema SYSNAME = &apos;dbo&apos;,
+	@IsDebug BIT = 0
+
+IF OBJECT_ID(&apos;tempdb..#CHANGED_COLUMNS&apos;) IS NOT NULL
+	DROP TABLE #CHANGED_COLUMNS
+
+SELECT
+    [ColumnName],
+    [Type],
+    [Length],
+    [Precision], 
+    [Scale]
+INTO #CHANGED_COLUMNS
+FROM #Source
+EXCEPT
+SELECT
+    [ColumnName],
+    [Type],
+    [Length],
+    [Precision], 
+    [Scale]
+FROM #Destination
+
+DECLARE
+	@Statement NVARCHAR(MAX) = &apos;&apos;,
+	@AlterColumnStatement NVARCHAR(MAX) = &apos;&apos;,
+	@ColumnName NVARCHAR(200),
+	@Sql NVARCHAR(MAX) = &apos;&apos;
+
+IF EXISTS (SELECT 1 FROM #CHANGED_COLUMNS)
+BEGIN
+	DECLARE 
+		@DataType NVARCHAR(200),
+		@Length INT,
+		@Precision INT,
+		@Scale INT
+
+	DECLARE
+		@HasExistingColumns INT = 0,
+		@HasNewColumns INT = 0
+
+	DECLARE x CURSOR FOR
+		SELECT [ColumnName], [Type], [Length], [Precision], [Scale]
+		FROM #COLUMNS
+		ORDER BY 1
+
+	OPEN x
+	FETCH NEXT FROM x INTO @ColumnName, @DataType, @Length, @Precision, @Scale
+	WHILE @@FETCH_STATUS = 0
+	BEGIN
+		DECLARE @Part NVARCHAR(MAX)
+		DECLARE @AlterColumnStub NVARCHAR(MAX) = &apos;
+ALTER TABLE [{2}].[{0}]
+ALTER COLUMN {1}&apos;
+
+		DECLARE @ColumnExists INT = 0
+		IF EXISTS(SELECT 1 FROM #Destination WHERE [ColumnName] = @ColumnName)
+		BEGIN
+			SELECT @ColumnExists = 1
+			SELECT @HasExistingColumns = 1
+		END
+		ELSE
+		BEGIN
+			SELECT @HasNewColumns = 1
+		END
+
+		IF @DataType = &apos;timestamp&apos;
+		BEGIN
+			SELECT @DataType = &apos;varbinary&apos;
+			SELECT @Length = 85
+		END
+
+		IF @DataType IN(&apos;char&apos;,&apos;varchar&apos;,&apos;binary&apos;,&apos;varbinary&apos;,&apos;nvarchar&apos;,&apos;nchar&apos;)
+		BEGIN
+			SELECT @Part = &apos;[&apos; + @ColumnName + &apos;] &apos; + @DataType + &apos;(&apos; + ISNULL(NULLIF(CONVERT(NVARCHAR,@Length), &apos;-1&apos;), &apos;MAX&apos;) + &apos;)&apos;
+
+			IF(@ColumnExists = 1)
+			BEGIN
+				SELECT @AlterColumnStatement = @AlterColumnStatement + REPLACE(@AlterColumnStub, &apos;{1}&apos;, @Part)
+			END
+			ELSE
+			BEGIN
+				SELECT @Statement = @Statement + @Part + &apos;,&apos;
+			END
+		END
+		ELSE IF @DataType IN(&apos;decimal&apos;,&apos;numeric&apos;)
+		BEGIN
+			SELECT @Part = &apos;[&apos; + @ColumnName + &apos;] &apos; + @DataType + &apos;(&apos; + CONVERT(NVARCHAR,@Precision) + &apos;,&apos; + CONVERT(NVARCHAR,@Scale) + &apos;)&apos;
+
+			IF(@ColumnExists = 1)
+			BEGIN
+				SELECT @AlterColumnStatement = @AlterColumnStatement + REPLACE(@AlterColumnStub, &apos;{1}&apos;, @Part)
+			END
+			ELSE
+			BEGIN
+				SELECT @Statement = @Statement + @Part + &apos;,&apos;
+			END
+		END
+		ELSE
+		BEGIN
+			SELECT @Part = &apos;[&apos; + @ColumnName + &apos;] &apos; + @DataType
+
+			IF(@ColumnExists = 1)
+			BEGIN
+				SELECT @AlterColumnStatement = @AlterColumnStatement + REPLACE(@AlterColumnStub, &apos;{1}&apos;, @Part)
+			END
+			ELSE
+			BEGIN
+				SELECT @Statement = @Statement + @Part + &apos;,&apos;
+			END
+		END
+	FETCH NEXT FROM x INTO @ColumnName, @DataType, @Length, @Precision, @Scale
+	END
+	CLOSE x
+	DEALLOCATE x
+
+	IF (LEN(@Statement) &amp;gt; 1)
+	BEGIN
+		SELECT @Statement = SUBSTRING(@Statement, 1, LEN(@Statement) - 1)
+	END
+
+	-- determine if is alter or create statement
+	IF OBJECT_ID(@EntityName) IS NOT NULL
+	BEGIN
+		IF (@HasExistingColumns = 1)
+		BEGIN
+			SELECT @Sql += @AlterColumnStatement
+		END
+		
+		IF (@HasNewColumns = 1)
+		BEGIN
+			SELECT @Sql += &apos;
+ALTER TABLE [{2}].[{0}]
+ADD {1}&apos;
+		END
+	END
+
+	SELECT @Sql = REPLACE(@Sql, &apos;{0}&apos;, @TableName)
+	SELECT @Sql = REPLACE(@Sql, &apos;{1}&apos;, @Statement)
+	SELECT @Sql = REPLACE(@Sql, &apos;{2}&apos;, @TableSchema)
+
+    IF @IsDebug = 1
+        PRINT (@Sql)
+    IF @IsDebug = 0
+        EXEC (@Sql)
+END
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h1&gt;Example – Generate Statement Layouts&lt;/h1&gt;
+&lt;p&gt;Here we generate layouts that can be used in &lt;code&gt;SELECT&lt;/code&gt;, &lt;code&gt;INSERT&lt;/code&gt; and &lt;code&gt;UPDATE&lt;/code&gt; statements assuming the source table is aliased as &lt;code&gt;[source]&lt;/code&gt;.&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;IF OBJECT_ID(&apos;tempdb..#SHARED_COLUMNS&apos;) IS NOT NULL
+	DROP TABLE #SHARED_COLUMNS
+
+SELECT
+    [ColumnName]
+INTO #SHARED_COLUMNS
+FROM #Source
+INTERSECT
+SELECT
+    [ColumnName]
+FROM #Destination
+
+-- generate layout --
+DECLARE
+    @ColumnFormat NVARCHAR(MAX) = &apos;&apos;,
+    @UpdateFormat NVARCHAR(MAX) = &apos;&apos;,
+    @ValuesFormat NVARCHAR(MAX) = &apos;&apos;
+
+SELECT
+    @ColumnFormat = STUFF((SELECT &apos;, [&apos; + [ColumnName] + &apos;]&apos; FROM #SHARED_COLUMNS ORDER BY [ColumnName] FOR XML PATH(&apos;&apos;)), 1, 2, &apos;&apos;),
+    @UpdateFormat = STUFF((SELECT &apos;, [&apos; + [ColumnName] + &apos;] = [source].[&apos; + [ColumnName] + &apos;]&apos; FROM #SHARED_COLUMNS ORDER BY [ColumnName] FOR XML PATH(&apos;&apos;)), 1, 2, &apos;&apos;),
+    @ValuesFormat = STUFF((SELECT &apos;, [source].[&apos; + [ColumnName] + &apos;]&apos; FROM #SHARED_COLUMNS ORDER BY [ColumnName] FOR XML PATH(&apos;&apos;)), 1, 2, &apos;&apos;)
+
+PRINT @ColumnFormat
+PRINT @UpdateFormat
+PRINT @ValuesFormat
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;~ SK&lt;/p&gt;
+</content:encoded></item><item><title>SQL Server Temporal Tables</title><link>https://www.kichka.dev/posts/sql-temporal-tables/</link><guid isPermaLink="true">https://www.kichka.dev/posts/sql-temporal-tables/</guid><description>SQL snips for querying and enabling temporal tables</description><pubDate>Tue, 23 Dec 2025 00:00:00 GMT</pubDate><content:encoded>&lt;h1&gt;System Version Query – How To&lt;/h1&gt;
 &lt;pre&gt;&lt;code&gt;SELECT * 
 FROM dbo.MyTable
 
