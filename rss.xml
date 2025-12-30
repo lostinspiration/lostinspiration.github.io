@@ -1,4 +1,99 @@
-<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>Lost Inspiration</title><description>A Memoir</description><link>https://www.kichka.dev/</link><language>en</language><item><title>SQL Voodoo Black Magic</title><link>https://www.kichka.dev/posts/sql-voodoo-blackmagic/</link><guid isPermaLink="true">https://www.kichka.dev/posts/sql-voodoo-blackmagic/</guid><description>SQL snips for querying sysobjects table and using the results to dynamically generate SQL query</description><pubDate>Sat, 27 Dec 2025 00:00:00 GMT</pubDate><content:encoded>&lt;p&gt;Sometimes you want to be able to dynamically construct table definitions to perform different actions, such as creating a copy of a table on a different database, compare table schema, sync table data where the tables are not guarenteed to have the same schema, generate update, merge, select and insert statements and not have to keep adjusting the code as the table schema drifts.&lt;/p&gt;
+<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>Lost Inspiration</title><description>A Memoir</description><link>https://www.kichka.dev/</link><language>en</language><item><title>SQL Server Quirky Update</title><link>https://www.kichka.dev/posts/sql-quirky-update/</link><guid isPermaLink="true">https://www.kichka.dev/posts/sql-quirky-update/</guid><description>Controversial running total calculations in SQL Server using the &quot;Quirky Update&quot;</description><pubDate>Sun, 28 Dec 2025 00:00:00 GMT</pubDate><content:encoded>&lt;p&gt;While I was developing my trading algo, I wanted to calculate different technical indicators, most of which depend on previous data points. In order to do that in SQL Server you have a couple options, and this is one of them.&lt;/p&gt;
+&lt;p&gt;There are two key points that make this &quot;quirky update&quot; work.&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;You &lt;strong&gt;MUST&lt;/strong&gt; have a clustered index on the table that represents the &lt;strong&gt;expected sort order&lt;/strong&gt; of the data. In this case is was the tick data ascending.&lt;/li&gt;
+&lt;li&gt;You &lt;strong&gt;MUST&lt;/strong&gt; use &lt;code&gt;OPTION (MAXDOP 1)&lt;/code&gt; option on the query so SQL Server doesn&apos;t try to parallelize the update.&lt;/li&gt;
+&lt;/ol&gt;
+&lt;h1&gt;Setup&lt;/h1&gt;
+&lt;p&gt;Below we create a staging table to house the technical indicators, the primary key is the clustered index, and tick data is inserted into the table in sorted order. You could also have the clustered index on the &lt;code&gt;[Time]&lt;/code&gt; column as well.&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;--DROP TABLE [stage].[Meta]
+CREATE TABLE [stage].[Meta] (
+	[RowIdx] BIGINT IDENTITY PRIMARY KEY,
+	[Id] UNIQUEIDENTIFIER,
+	[InstrumentId] INT,
+	[Pip] NUMERIC(10, 5),
+	[Time] DATETIME2,
+	[Open] NUMERIC(10, 5),
+	[High] NUMERIC(10, 5),
+	[Low] NUMERIC(10, 5),
+	[Close] NUMERIC(10, 5),
+	[Volume] INT
+);
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;In the following examples take note of the usage of the variables that retain the previous calculation result and how they get used when updating the calculation for the next row. This essentially causes the same behavior you would get if you had used a SQL &lt;code&gt;CURSOR&lt;/code&gt;.&lt;/p&gt;
+&lt;h1&gt;Example -- Heikin Ashi Candlestick&lt;/h1&gt;
+&lt;pre&gt;&lt;code&gt;/* indicator columns
+ALTER TABLE [stage].[Meta]
+ADD	[HaOpen] NUMERIC(10, 5),
+    [HaHigh] NUMERIC(10, 5),
+    [HaLow] NUMERIC(10, 5),
+    [HaClose] NUMERIC(10, 5)
+--*/
+
+-- calculate heikin ashi candles
+-- NOTE: variable ordering matters here
+---------------------------------------------------------------------------------------------------
+DECLARE
+    @HaOpen NUMERIC(10, 5) = 0,
+    @HaClose NUMERIC(10, 5) = 0,
+    @PrevHaOpen NUMERIC(10, 5) = 0,
+    @PrevHaClose NUMERIC(10, 5) = 0
+
+-- quirky update --
+UPDATE [stage].[Meta]
+SET @HaClose = ([Open] + [High] + [Low] + [Close]) / 4.0,
+    [HaClose] = @HaClose,
+
+    @HaOpen = CASE WHEN [RowIdx] = 1 THEN ([Open] + [Close]) / 2.0 ELSE (@PrevHaOpen + @PrevHaClose) / 2.0 END,
+    [HaOpen] = @HaOpen,
+
+    [HaHigh] = (SELECT MAX([val]) FROM ( VALUES ([High]), ([HaOpen]), ([HaClose]) ) T([val])),
+    [HaLow] = (SELECT MIN([val]) FROM ( VALUES ([Low]), ([HaOpen]), ([HaClose]) ) T([val])),
+
+    @PrevHaClose = @HaClose,
+    @PrevHaOpen = @HaOpen
+OPTION (MAXDOP 1);
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h1&gt;Example -- Exponential Moving Average&lt;/h1&gt;
+&lt;pre&gt;&lt;code&gt;/* indicator columns
+ALTER TABLE [stage].[Meta]
+ADD [EMA012] NUMERIC(10, 5),
+    [EMA026] NUMERIC(10, 5)
+--*/
+
+-- calculate ema&apos;s
+-- NOTE: depends on sma being calculated first
+---------------------------------------------------------------------------------------------------
+-- quirky update --
+DECLARE
+    @EMA012 NUMERIC(10, 5) = 0,
+    @EMA026 NUMERIC(10, 5) = 0
+
+UPDATE [stage].[Meta]
+SET @EMA012 = CASE WHEN [RowIdx] = 1 THEN [SMA012] ELSE ([Close] - @EMA012) * (2 / ((12 + 1) * 1.0)) + @EMA012 END,
+    [EMA012] = @EMA012,
+
+    @EMA026 = CASE WHEN [RowIdx] = 1 THEN [SMA026] ELSE ([Close] - @EMA026) * (2 / ((26 + 1) * 1.0)) + @EMA026 END,
+    [EMA026] = @EMA026
+OPTION (MAXDOP 1);
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h1&gt;Summary&lt;/h1&gt;
+&lt;p&gt;I first came across this when looking for a better way to perform the update without having all of the ceremony that comes with the &lt;code&gt;CURSOR&lt;/code&gt;. You can find the original article below and their 10 rules on using this technique.&lt;/p&gt;
+&lt;p&gt;&amp;lt;a href=&quot;https://www.sqlservercentral.com/articles/solving-the-running-total-and-ordinal-rank-problems-rewritten&quot; target=&quot;_blank&quot;&amp;gt;The Rules &amp;amp; Inspiration&amp;lt;/a&amp;gt;&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;CLUSTERED INDEX MUST BE PRESENT IN THE CORRECT ORDER&lt;/li&gt;
+&lt;li&gt;PARALLELISM MUST BE PREVENTED: MUST include OPTION (MAXDOP 1)&lt;/li&gt;
+&lt;li&gt;DON&apos;T WORK AGAINST PARTITIONED STRUCTURES&lt;/li&gt;
+&lt;li&gt;USE THE TABLOCKX HINT&lt;/li&gt;
+&lt;li&gt;DO NOT USE JOINS&lt;/li&gt;
+&lt;li&gt;YOU MUST HAVE AN &quot;ANCHOR&quot; COLUMN&lt;/li&gt;
+&lt;li&gt;DO NOT USE ORDER BY&lt;/li&gt;
+&lt;li&gt;DO NOT USE INDEX HINTS TO TRY TO FORCE ORDER&lt;/li&gt;
+&lt;li&gt;GET IT RIGHT&lt;/li&gt;
+&lt;li&gt;TEST!&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p&gt;~ SK&lt;/p&gt;
+</content:encoded></item><item><title>SQL Voodoo Black Magic</title><link>https://www.kichka.dev/posts/sql-voodoo-blackmagic/</link><guid isPermaLink="true">https://www.kichka.dev/posts/sql-voodoo-blackmagic/</guid><description>SQL snips for querying sysobjects table and using the results to dynamically generate SQL query</description><pubDate>Sat, 27 Dec 2025 00:00:00 GMT</pubDate><content:encoded>&lt;p&gt;Sometimes you want to be able to dynamically construct table definitions to perform different actions, such as creating a copy of a table on a different database, compare table schema, sync table data where the tables are not guarenteed to have the same schema, generate update, merge, select and insert statements and not have to keep adjusting the code as the table schema drifts.&lt;/p&gt;
 &lt;p&gt;Below we will go through a few of these scenarios, but first lets define the &quot;black magic&quot; that the rest of the examples will build upon.&lt;/p&gt;
 &lt;h1&gt;Black Magic&lt;/h1&gt;
 &lt;p&gt;These are the exact same query but produce a &lt;code&gt;#Source&lt;/code&gt; and &lt;code&gt;#Destination&lt;/code&gt; temp tables that the examples will use.&lt;/p&gt;
@@ -58,7 +153,7 @@ JOIN [sys].[schemas] ss
 ON so.[schema_id] = ss.[schema_id]
 WHERE so.[name] = @TableName AND ss.[name] = @TableSchema
 &lt;/code&gt;&lt;/pre&gt;
-&lt;h1&gt;Example – Create Table Copy&lt;/h1&gt;
+&lt;h1&gt;Example -- Create Table Copy&lt;/h1&gt;
 &lt;p&gt;Create a copy of the table using the source schema information possibly injecting extra columns in the copy.&lt;/p&gt;
 &lt;pre&gt;&lt;code&gt;DECLARE
 	@TableName SYSNAME = &apos;MyTable&apos;,
@@ -130,7 +225,7 @@ IF @IsDebug = 1
 IF @IsDebug = 0
 	EXEC (@Sql)
 &lt;/code&gt;&lt;/pre&gt;
-&lt;h1&gt;Example – Schema Diff&lt;/h1&gt;
+&lt;h1&gt;Example -- Schema Diff&lt;/h1&gt;
 &lt;p&gt;Below are a few ways you can use this information to find;&lt;/p&gt;
 &lt;ul&gt;
 &lt;li&gt;columns that have changed&lt;/li&gt;
@@ -195,7 +290,7 @@ SELECT
     [ColumnName]
 FROM #Destination
 &lt;/code&gt;&lt;/pre&gt;
-&lt;h1&gt;Example – Sync Destination Schema with Source&lt;/h1&gt;
+&lt;h1&gt;Example -- Sync Destination Schema with Source&lt;/h1&gt;
 &lt;p&gt;Here we will cursor over the columns that are missing and either create a series of &lt;code&gt;ALTER TABLE&lt;/code&gt; statements to bring the destination table in sync with the source.&lt;/p&gt;
 &lt;pre&gt;&lt;code&gt;DECLARE
 	@TableName SYSNAME = &apos;MyTable&apos;,
@@ -346,7 +441,7 @@ ADD {1}&apos;
         EXEC (@Sql)
 END
 &lt;/code&gt;&lt;/pre&gt;
-&lt;h1&gt;Example – Generate Statement Layouts&lt;/h1&gt;
+&lt;h1&gt;Example -- Generate Statement Layouts&lt;/h1&gt;
 &lt;p&gt;Here we generate layouts that can be used in &lt;code&gt;SELECT&lt;/code&gt;, &lt;code&gt;INSERT&lt;/code&gt; and &lt;code&gt;UPDATE&lt;/code&gt; statements assuming the source table is aliased as &lt;code&gt;[source]&lt;/code&gt;.&lt;/p&gt;
 &lt;pre&gt;&lt;code&gt;IF OBJECT_ID(&apos;tempdb..#SHARED_COLUMNS&apos;) IS NOT NULL
 	DROP TABLE #SHARED_COLUMNS
@@ -376,7 +471,7 @@ PRINT @UpdateFormat
 PRINT @ValuesFormat
 &lt;/code&gt;&lt;/pre&gt;
 &lt;p&gt;~ SK&lt;/p&gt;
-</content:encoded></item><item><title>SQL Server Temporal Tables</title><link>https://www.kichka.dev/posts/sql-temporal-tables/</link><guid isPermaLink="true">https://www.kichka.dev/posts/sql-temporal-tables/</guid><description>SQL snips for querying and enabling temporal tables</description><pubDate>Tue, 23 Dec 2025 00:00:00 GMT</pubDate><content:encoded>&lt;h1&gt;System Version Query – How To&lt;/h1&gt;
+</content:encoded></item><item><title>SQL Server Temporal Tables</title><link>https://www.kichka.dev/posts/sql-temporal-tables/</link><guid isPermaLink="true">https://www.kichka.dev/posts/sql-temporal-tables/</guid><description>SQL snips for querying and enabling temporal tables</description><pubDate>Tue, 23 Dec 2025 00:00:00 GMT</pubDate><content:encoded>&lt;h1&gt;System Version Query -- How To&lt;/h1&gt;
 &lt;pre&gt;&lt;code&gt;SELECT * 
 FROM dbo.MyTable
 
