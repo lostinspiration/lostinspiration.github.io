@@ -1,4 +1,469 @@
-<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>Lost Inspiration</title><description>A Memoir</description><link>https://www.kichka.dev/</link><language>en</language><item><title>SQL Server Quirky Update</title><link>https://www.kichka.dev/posts/sql-quirky-update/</link><guid isPermaLink="true">https://www.kichka.dev/posts/sql-quirky-update/</guid><description>Controversial running total calculations in SQL Server using the &quot;Quirky Update&quot;</description><pubDate>Sun, 28 Dec 2025 00:00:00 GMT</pubDate><content:encoded>&lt;p&gt;While I was developing my trading algo, I wanted to calculate different technical indicators, most of which depend on previous data points. In order to do that in SQL Server you have a couple options, and this is one of them.&lt;/p&gt;
+<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>Lost Inspiration</title><description>A Memoir</description><link>https://www.kichka.dev/</link><language>en</language><item><title>Deforestation (Logging)</title><link>https://www.kichka.dev/posts/deforestation/</link><guid isPermaLink="true">https://www.kichka.dev/posts/deforestation/</guid><description>Logging — The Stack, Fundamentals, and the hard won experience that has continued to pay dividens. With bonus content of extending it into SQL Server</description><pubDate>Tue, 30 Dec 2025 00:00:00 GMT</pubDate><content:encoded>&lt;p&gt;Nothing is more frustrating than a system being broken with no visibility into it, at the same time there is nothing more satisfying than catching problems with your vendors before they do. Being proactive, rather than reactive also buys a ton of grace from your users when you catch problems before they are reported and sometime having gone totally unnoticed.&lt;/p&gt;
+&lt;p&gt;This reminds me of a quote from the &amp;lt;a href=&quot;https://www.imdb.com/title/tt0756880/&quot; target=&quot;_blank&quot;&amp;gt;Futurama Godfellas&amp;lt;/a&amp;gt; episode where the Galaxy God Entity is talking to Bender and says &lt;em&gt;&quot;When you do things right, people won&apos;t be sure you&apos;ve done anything at all&quot;&lt;/em&gt; and I couldn&apos;t agree more. Proper logging and visibility will lead to exactly that!&lt;/p&gt;
+&lt;p&gt;Below we will look at how I have implemented it and the choices made along the way.&lt;/p&gt;
+&lt;h1&gt;The Software Stack&lt;/h1&gt;
+&lt;h2&gt;&amp;lt;a href=&quot;https://grafana.com/oss/grafana/?pg=get&amp;amp;plcmt=selfmanaged-box1-cta2&quot; target=&quot;_blank&quot;&amp;gt;Grafana&amp;lt;/a&amp;gt;&lt;/h2&gt;
+&lt;p&gt;This is the user interface to query logs and metrics, creating rich dashboards and visualizations, and alerting when specific conditions are met.&lt;/p&gt;
+&lt;h2&gt;&amp;lt;a href=&quot;https://grafana.com/oss/loki/?pg=get&amp;amp;plcmt=selfmanaged-box2-cta2&quot; target=&quot;_blank&quot;&amp;gt;Loki&amp;lt;/a&amp;gt;&lt;/h2&gt;
+&lt;p&gt;This is a platform specifically optimized for handling message streams. I prefer to instrument my applications using JSON messages that Grafana can then parse out with &amp;lt;a href=&quot;https://grafana.com/docs/loki/latest/query/log_queries/&quot; target=&quot;_blank&quot;&amp;gt;LogQL&amp;lt;/a&amp;gt;. Become familiar with writing log queries as that is how you will explore the data.&lt;/p&gt;
+&lt;p&gt;Log streams are grouped by labels. These labels have served me quite well for many years.&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Application&lt;/strong&gt; is the top level assembly or application that produced the log&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Environment&lt;/strong&gt; is the environment &lt;em&gt;(e.g. dev, stage, production)&lt;/em&gt;&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;MachineName&lt;/strong&gt; is the computer or server running the application
+:::warning
+Loki will group and store in like chunks (files) on the server using the stream labels. You want this to be as &lt;strong&gt;low cardinality&lt;/strong&gt; as possible to avoid having too many individual files on the server.
+:::&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;You might be asking at this point, &quot;How do I add additional information to my log messages&quot;? This is where the Log Property Stack comes in. It is a way to enrich your logs with additional context without trying to jam it into the log message itself.&lt;/p&gt;
+&lt;h4&gt;Log Property Stack&lt;/h4&gt;
+&lt;p&gt;Instead of adding all the details to the log message itself, you should utilize the property stack which will persist the property with every message nested within the scope that property was defined.&lt;/p&gt;
+&lt;p&gt;Here are some examples of what I use through my applications. These are staples that I include in everything and add more as needed to determine application state at major branching points.&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;InstanceId&lt;/strong&gt; for long running process, defering to CorrelationId for nested units of work&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;CorrelationId&lt;/strong&gt; for discrete units of work&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;RequestInfo&lt;/strong&gt; object for web stuff like url, headers, query params, and other information to help trace requests.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h4&gt;Dependency Recommendations&lt;/h4&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Serilog&lt;/strong&gt; for dotnet applications&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Serilog.Sinks.Debug&lt;/strong&gt; for web applications when you are running locally&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Serilog.Sinks.Console&lt;/strong&gt; for console applications writing to stdout/stderr&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Serilog.Sinks.Grafana.Loki&lt;/strong&gt; for writing to a Loki server&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;SerilogTimings&lt;/strong&gt; for timing operations, use this whenever my application leaves its domain of control &lt;em&gt;(e.g. when making database query or web requests)&lt;/em&gt;&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Custom stored procedures&lt;/strong&gt; for SQL Server, &lt;em&gt;see &lt;a href=&quot;#bonus&quot;&gt;bonus content&lt;/a&gt; below&lt;/em&gt;&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2&gt;&amp;lt;a href=&quot;https://grafana.com/oss/prometheus/?pg=get&amp;amp;plcmt=selfmanaged-box11-cta2&quot; target=&quot;_blank&quot;&amp;gt;Prometheus&amp;lt;/a&amp;gt;&lt;/h2&gt;
+&lt;p&gt;Prometheus is a time series database and handles things that do not fit into structured logging such as performance counters. Like Loki, has its own query language called &amp;lt;a href=&quot;https://prometheus.io/docs/prometheus/latest/querying/basics/&quot; target=&quot;_blank&quot;&amp;gt;PromQL&amp;lt;/a&amp;gt;.&lt;/p&gt;
+&lt;h4&gt;Performance counters&lt;/h4&gt;
+&lt;ul&gt;
+&lt;li&gt;CPU and Memory Utilization&lt;/li&gt;
+&lt;li&gt;Disk and Network Usage&lt;/li&gt;
+&lt;li&gt;IIS and SQL specific counters like request throughput&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;These counters can be gathered from the servers directly using a tool called &amp;lt;a href=&quot;https://github.com/prometheus-community/windows_exporter&quot; target=&quot;_blank&quot;&amp;gt;windows_exporter&amp;lt;/a&amp;gt; that provides an HTTP endpoint that can be scraped by a Prometheus server.
+:::warning
+Please be mindful of your companies security practices as the out of the box the server is not secured. Configuration can be found &amp;lt;a href=&quot;https://github.com/prometheus/exporter-toolkit/blob/master/docs/web-configuration.md&quot; target=&quot;_blank&quot;&amp;gt;here&amp;lt;/a&amp;gt;.
+:::&lt;/p&gt;
+&lt;h1&gt;Logging Fundamentals&lt;/h1&gt;
+&lt;p&gt;:::caution[Here be dragons...]&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;Avoid logging PII -- Logs are public and can leak information&lt;/li&gt;
+&lt;li&gt;Avoid excessive logging -- Logging can be great at first to build confidence in a process. If you find yourself logging every little step, &lt;code&gt;Debug&lt;/code&gt; or &lt;code&gt;Verbose&lt;/code&gt; should be used&lt;/li&gt;
+&lt;li&gt;Avoid logging user correctable errors as &lt;code&gt;Error&lt;/code&gt;. &lt;code&gt;Debug&lt;/code&gt; or &lt;code&gt;Warning&lt;/code&gt; may be a more appropriate place for these types of messages&lt;/li&gt;
+&lt;li&gt;Avoid punctuation when possible. Log messages are &lt;strong&gt;fragments, not sentences&lt;/strong&gt;
+:::&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2&gt;Log Key Events&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;Major branching points in your code&lt;/li&gt;
+&lt;li&gt;When errors or unexpected values are encountered&lt;/li&gt;
+&lt;li&gt;Any IO or resource intensive operations&lt;/li&gt;
+&lt;li&gt;Significant domain events&lt;/li&gt;
+&lt;li&gt;Request failures and retires&lt;/li&gt;
+&lt;li&gt;Beginning and end of time-consuming batch operations&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2&gt;Choose Appropriate Logging Level&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;Be generous with your logging but strict with your logging levels. In almost all cases the level of your logs should be Debug&lt;/li&gt;
+&lt;li&gt;Use Information for log events that would be needed in production to determine the running state or correctness of your application&lt;/li&gt;
+&lt;li&gt;Use Warning or Error for unexpected events like exceptions&lt;/li&gt;
+&lt;li&gt;The Error level should be reserved for events that you intend to act on. User correctable errors should never be logged at this level&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h1&gt;Bonus -- Logging in SQL Server&lt;/h1&gt;
+&lt;h2&gt;Configure&lt;/h2&gt;
+&lt;p&gt;This is called at the start of your SQL session that you want to log and should only be called once per session.&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;CREATE PROCEDURE [dbo].[ConfigureFor](
+	@Application VARCHAR(200),
+	@Environment VARCHAR(11)
+)
+AS
+BEGIN
+	BEGIN TRY
+		-- normalize and validate environment value
+		SELECT @Environment = CASE
+			WHEN @Environment IN (&apos;development&apos;, &apos;0&apos;) THEN &apos;Development&apos;
+			WHEN @Environment IN (&apos;stage&apos;, &apos;2&apos;) THEN &apos;Stage&apos;
+			WHEN @Environment IN (&apos;production&apos;, &apos;1&apos;) THEN &apos;Production&apos;
+			ELSE NULL
+		END
+
+		IF @Environment IS NULL
+		BEGIN
+			RAISERROR(&apos;Invalid environment value. Should be one of [Development|Stage|Production]&apos;, 16, 1)
+		END
+
+		DECLARE @ReadOnly INT = 1
+		EXECUTE sp_set_session_context &apos;Application&apos;, @Application, @ReadOnly
+		EXECUTE sp_set_session_context &apos;MachineName&apos;, @@SERVERNAME, @ReadOnly
+		EXECUTE sp_set_session_context &apos;Environment&apos;, @Environment, @ReadOnly
+
+		EXECUTE sp_set_session_context &apos;__index__&apos;, NULL
+	END TRY
+	BEGIN CATCH
+		THROW
+	END CATCH
+END
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h2&gt;Log Level Functions&lt;/h2&gt;
+&lt;p&gt;The meat and potatoes of the implementation. It will gather all of the log properties off the stack and do the submission to the Loki server. There are convenience functions for each log level.&lt;/p&gt;
+&lt;h3&gt;Implementation&lt;/h3&gt;
+&lt;p&gt;:::important
+This will need a way to make HTTP requests from SQL Server. This could be through &amp;lt;a href=&quot;https://learn.microsoft.com/en-us/sql/database-engine/configure-windows/ole-automation-procedures-server-configuration-option&quot; target=&quot;_blank&quot;&amp;gt;OLEAutomation&amp;lt;/a&amp;gt;, a dotnet SQLCLR assembly or SQL Server Language Extensions.
+:::
+:::note
+This is typically not called directly favoring the convenience functions.
+:::&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;CREATE PROCEDURE [dbo].[LogTo_Impl](
+	@Message NVARCHAR(4000),
+	@Level NVARCHAR(50)
+)
+AS
+BEGIN
+	BEGIN TRY
+		--DECLARE @Message NVARCHAR(4000) = &apos;DONKEY!&apos;
+		-- cheap insurance to make sure that ConfigureFor has been called
+		IF SESSION_CONTEXT(N&apos;Application&apos;) IS NULL
+		BEGIN
+			RETURN
+		END
+
+		-- get log time as unix epoch in nanos
+		DECLARE @Time BIGINT = DATEDIFF_BIG(NANOSECOND, &apos;1970-01-01 00:00:00.0000000&apos;, SYSUTCDATETIME())
+
+		-- add standard set of properties to be logged
+		EXECUTE LogProperty_Add &apos;Message&apos;, @Message
+		EXECUTE LogProperty_Add &apos;level&apos;, @Level
+
+		-- send to loki
+		-- json
+		-- {
+		-- 	&quot;streams&quot;: [
+		-- 	{
+		-- 		&quot;stream&quot;: {
+		-- 			&quot;label&quot;: &quot;value&quot;
+		-- 		},
+		-- 		&quot;values&quot;: [
+		-- 			[ &quot;unix epoch in nanoseconds&quot;, &quot;log line&quot; ],
+		-- 			[ &quot;unix epoch in nanoseconds&quot;, &quot;log line&quot; ]
+		-- 		]
+		-- 	}
+		-- 	]
+		-- }
+		-- 
+		-- http://localhost:3100/loki/api/v1/push
+
+		-- these are configured in the ConfigureFor stored procedure
+		DECLARE @StreamLabels NVARCHAR(MAX) = (
+			SELECT *
+			FROM (
+				SELECT *
+				FROM(VALUES
+					(&apos;Application&apos;, SESSION_CONTEXT(N&apos;Application&apos;)), 
+					(&apos;MachineName&apos;, SESSION_CONTEXT(N&apos;MachineName&apos;)), 
+					(&apos;Environment&apos;, SESSION_CONTEXT(N&apos;Environment&apos;))
+				) stream_labels([key], [value])
+			) a
+			PIVOT (
+				MAX([value]) FOR [key] IN ([Application], [MachineName], [Environment])
+			) pvt
+			FOR JSON AUTO, WITHOUT_ARRAY_WRAPPER/*, INCLUDE_NULL_VALUES*/
+		)
+		--SELECT @StreamLabels
+
+		IF OBJECT_ID(&apos;tempdb..#TMP&apos;) IS NOT NULL
+		BEGIN
+			DROP TABLE #TMP
+		END
+
+		SELECT
+			[key] = [value],
+			[value] = SESSION_CONTEXT(CAST([value] AS NVARCHAR(100))),
+			[is_json] = ISJSON(CAST(SESSION_CONTEXT(CAST([value] AS NVARCHAR(100))) AS NVARCHAR(MAX)))
+		INTO #TMP
+		FROM OPENJSON(CAST(SESSION_CONTEXT(N&apos;__index__&apos;) AS NVARCHAR(MAX)))
+
+		-- generate select list to account for json column data.
+		-- we have to use JSON_QUERY on json data so that it is treated as a json fragment when the overall select is serialized
+		DECLARE @SelectList NVARCHAR(MAX) = (SELECT STUFF((
+		-- stuff select begin
+		SELECT &apos;,&apos; + IIF([is_json] = 1, QUOTENAME([key]) + &apos; = JSON_QUERY(CAST(&apos; + QUOTENAME([key]) + &apos; AS NVARCHAR(MAX)))&apos;, QUOTENAME([key]))
+		FROM #TMP
+		FOR XML PATH (&apos;&apos;)
+		-- stuff select end
+		), 1, 1, &apos;&apos;)
+		)
+		--SELECT @SelectList
+
+		-- generate pivot list
+		DECLARE @PvtList NVARCHAR(MAX) = (SELECT STUFF((
+		-- stuff select begin
+		SELECT &apos;,&apos; + QUOTENAME([key]) FROM #TMP
+		FOR XML PATH (&apos;&apos;)
+		-- stuff select end
+		), 1, 1, &apos;&apos;)
+		)
+		--SELECT @PvtList
+
+		-- generate message span
+		DECLARE @Sql NVARCHAR(MAX) = &apos;&apos;
+		SELECT @Sql = &apos;
+		DECLARE @Json NVARCHAR(MAX) = (
+			SELECT {1}
+			FROM (
+				SELECT [key], [value]
+				FROM #TMP
+			) a
+			PIVOT (
+				MAX([value]) FOR [key] IN ({0})
+			) pvt
+			FOR JSON AUTO, WITHOUT_ARRAY_WRAPPER/*, INCLUDE_NULL_VALUES*/
+		)
+		SELECT @Json&apos;
+		SELECT @Sql = REPLACE(@Sql, &apos;{0}&apos;, @PvtList)
+		SELECT @Sql = REPLACE(@Sql, &apos;{1}&apos;, @SelectList)
+
+		DECLARE @Json TABLE ([Json] NVARCHAR(MAX))
+		INSERT INTO @Json
+		EXECUTE(@Sql)
+
+		-- generate full loki request
+		DECLARE @LokiRequest NVARCHAR(MAX) = (
+			SELECT
+				[stream] = JSON_QUERY(@StreamLabels),
+				[values] = JSON_QUERY(&apos;[[&apos; + QUOTENAME(CAST(@Time AS VARCHAR(20)), &apos;&quot;&apos;) + &apos;,&quot;&apos; + STRING_ESCAPE([Json], &apos;json&apos;) + &apos;&quot;]]&apos;)
+			FROM @Json
+			FOR JSON AUTO, ROOT(&apos;streams&apos;)
+		)
+		--SELECT @LokiRequest
+		--PRINT @LokiRequest
+
+		-- reset exception
+		EXECUTE LogProperty_Add &apos;Exception&apos;, NULL
+
+		-- loose the request
+		DECLARE @HeadersJson NVARCHAR(MAX) = (
+			SELECT *
+			FROM (
+				SELECT 
+					[content-type] = &apos;application/json&apos;,
+					[content-length] = CAST(LEN(@LokiRequest) AS VARCHAR(20))
+			) a
+			FOR JSON AUTO
+		)
+		--SELECT @HeadersJson
+
+		EXECUTE HttpPost &apos;http://localhost:3100/loki/api/v1/push&apos;, @LokiRequest, NULL, NULL, @HeadersJson
+	END TRY
+	BEGIN CATCH
+		-- swallow
+	END CATCH
+END
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h3&gt;Fatal&lt;/h3&gt;
+&lt;pre&gt;&lt;code&gt;CREATE PROCEDURE [dbo].[LogTo_Fatal](
+	@Message NVARCHAR(4000),
+	@CallingProc SYSNAME = NULL
+)
+AS
+BEGIN
+	IF @CallingProc IS NOT NULL
+	BEGIN
+		EXECUTE LogProperty_AddSourceContext @CallingProc
+	END
+
+	-- extra error details
+	IF ERROR_MESSAGE() IS NOT NULL
+	BEGIN
+		DECLARE @Exception NVARCHAR(4000)
+		SELECT @Exception = (
+			SELECT *
+			FROM (
+				SELECT 
+					[ErrorNumber] = ERROR_NUMBER(),
+					[ErrorSeverity] = ERROR_SEVERITY(),
+					[ErrorState] = ERROR_STATE(),
+					[ErrorProcedure] = ERROR_PROCEDURE(),
+					[ErrorLine] = ERROR_LINE(),
+					[ErrorMessage] = ERROR_MESSAGE()
+			) exception
+			FOR JSON AUTO, WITHOUT_ARRAY_WRAPPER
+		)
+
+		EXECUTE LogProperty_Add &apos;Exception&apos;, @Exception
+	END
+
+	EXECUTE LogTo_Impl @Message, &apos;critical&apos;
+END
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h3&gt;Error&lt;/h3&gt;
+&lt;pre&gt;&lt;code&gt;CREATE PROCEDURE [dbo].[LogTo_Error](
+	@Message NVARCHAR(4000),
+	@CallingProc SYSNAME = NULL
+)
+AS
+BEGIN
+	IF @CallingProc IS NOT NULL
+	BEGIN
+		EXECUTE LogProperty_AddSourceContext @CallingProc
+	END
+
+	-- extra error details
+	IF ERROR_MESSAGE() IS NOT NULL
+	BEGIN
+		DECLARE @Exception NVARCHAR(4000)
+		SELECT @Exception = (
+			SELECT *
+			FROM (
+				SELECT 
+					[ErrorNumber] = ERROR_NUMBER(),
+					[ErrorSeverity] = ERROR_SEVERITY(),
+					[ErrorState] = ERROR_STATE(),
+					[ErrorProcedure] = ERROR_PROCEDURE(),
+					[ErrorLine] = ERROR_LINE(),
+					[ErrorMessage] = ERROR_MESSAGE()
+			) exception
+			FOR JSON AUTO, WITHOUT_ARRAY_WRAPPER
+		)
+
+		EXECUTE LogProperty_Add &apos;Exception&apos;, @Exception
+	END
+
+	EXECUTE LogTo_Impl @Message, &apos;error&apos;
+END
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h3&gt;Debug&lt;/h3&gt;
+&lt;pre&gt;&lt;code&gt;CREATE PROCEDURE [dbo].[LogTo_Debug](
+	@Message NVARCHAR(4000),
+	@CallingProc SYSNAME = NULL
+)
+AS
+BEGIN
+	IF @CallingProc IS NOT NULL
+	BEGIN
+		EXECUTE LogProperty_AddSourceContext @CallingProc
+	END
+
+	EXECUTE LogTo_Impl @Message, &apos;debug&apos;
+END
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h3&gt;Warning&lt;/h3&gt;
+&lt;pre&gt;&lt;code&gt;CREATE PROCEDURE [dbo].[LogTo_Warning](
+	@Message NVARCHAR(4000),
+	@CallingProc SYSNAME = NULL
+)
+AS
+BEGIN
+	IF @CallingProc IS NOT NULL
+	BEGIN
+		EXECUTE LogProperty_AddSourceContext @CallingProc
+	END
+
+	EXECUTE LogTo_Impl @Message, &apos;warn&apos;
+END
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h3&gt;Information&lt;/h3&gt;
+&lt;pre&gt;&lt;code&gt;CREATE PROCEDURE [dbo].[LogTo_Information](
+	@Message NVARCHAR(4000),
+	@CallingProc SYSNAME = NULL
+)
+AS
+BEGIN
+	IF @CallingProc IS NOT NULL
+	BEGIN
+		EXECUTE LogProperty_AddSourceContext @CallingProc
+	END
+
+	EXECUTE LogTo_Impl @Message, &apos;info&apos;
+END
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h3&gt;Verbose&lt;/h3&gt;
+&lt;pre&gt;&lt;code&gt;CREATE PROCEDURE [dbo].[LogTo_Verbose](
+	@Message NVARCHAR(4000),
+	@CallingProc SYSNAME = NULL
+)
+AS
+BEGIN
+	IF @CallingProc IS NOT NULL
+	BEGIN
+		EXECUTE LogProperty_AddSourceContext @CallingProc
+	END
+
+	EXECUTE LogTo_Impl @Message, &apos;trace&apos;
+END
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h2&gt;Log Property Stack&lt;/h2&gt;
+&lt;p&gt;This is how you add additional context to your logs with some convenience functions below. They are just key value pairs that will get added to the log stream and can be parsed out using the Loki logQL within Grafana.&lt;/p&gt;
+&lt;h3&gt;Implementation&lt;/h3&gt;
+&lt;pre&gt;&lt;code&gt;ALTER PROCEDURE [dbo].[LogProperty_Add](
+	@Name NVARCHAR(100),
+	@Value NVARCHAR(4000)
+)
+AS
+BEGIN
+	BEGIN TRY
+		--EXECUTE sp_set_session_context &apos;__index__&apos;, &apos;[&quot;ApplicationInstance&quot;, &quot;CorrelationId&quot;]&apos;
+		--DECLARE @Name VARCHAR(100) = &apos;InstanceId&apos;
+
+		-- you cannot query values from the SESSION_CONTEXT without explicitly knowing the key
+		-- for this reason, we house a list of keys in a __index__ session value so we know what
+		-- to pull when we generate the actual log
+		-- add new key to property bag
+		DECLARE @IndexKeys NVARCHAR(4000)
+		SELECT @IndexKeys = &apos;[&apos; + ISNULL(STUFF(
+-- stuff select begin
+(SELECT &apos;,&quot;&apos; + [Value] + &apos;&quot;&apos;
+FROM (
+	SELECT [value]
+	FROM OPENJSON(CAST(SESSION_CONTEXT(N&apos;__index__&apos;) AS NVARCHAR(MAX)))
+	UNION
+	SELECT @Name
+) a([value])
+FOR XML PATH (&apos;&apos;)),
+-- stuff select end
+		1, 1, &apos;&apos;), &apos;&apos;) + &apos;]&apos;
+		
+		-- persist new property bag
+		EXECUTE sp_set_session_context &apos;__index__&apos;, @IndexKeys
+		--SELECT SESSION_CONTEXT(N&apos;__index__&apos;)
+
+		-- persist log property
+		EXECUTE sp_set_session_context @Name, @Value
+	END TRY
+	BEGIN CATCH
+		-- swallow
+	END CATCH
+END
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h3&gt;CorrelationId&lt;/h3&gt;
+&lt;pre&gt;&lt;code&gt;ALTER PROCEDURE [dbo].[LogProperty_CorrelationId](
+	@Value NVARCHAR(4000)
+)
+AS
+BEGIN
+	EXECUTE LogProperty_Add &apos;CorrelationId&apos;, @Value
+END
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h3&gt;SourceContext&lt;/h3&gt;
+&lt;pre&gt;&lt;code&gt;ALTER PROCEDURE [dbo].[LogProperty_AddSourceContext](
+	@Value NVARCHAR(4000)
+)
+AS
+BEGIN
+	EXECUTE LogProperty_Add &apos;SourceContext&apos;, @Value
+END
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h3&gt;InstanceId&lt;/h3&gt;
+&lt;pre&gt;&lt;code&gt;ALTER PROCEDURE [dbo].[LogProperty_InstanceId](
+	@Value NVARCHAR(4000)
+)
+AS
+BEGIN
+	EXECUTE LogProperty_Add &apos;InstanceId&apos;, @Value
+END
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;~ SK&lt;/p&gt;
+</content:encoded></item><item><title>SQL Server Quirky Update</title><link>https://www.kichka.dev/posts/sql-quirky-update/</link><guid isPermaLink="true">https://www.kichka.dev/posts/sql-quirky-update/</guid><description>Controversial running total calculations in SQL Server using the &quot;Quirky Update&quot;</description><pubDate>Sun, 28 Dec 2025 00:00:00 GMT</pubDate><content:encoded>&lt;p&gt;While I was developing my trading algo, I wanted to calculate different technical indicators, most of which depend on previous data points. In order to do that in SQL Server you have a couple options, and this is one of them.&lt;/p&gt;
 &lt;p&gt;There are two key points that make this &quot;quirky update&quot; work.&lt;/p&gt;
 &lt;ol&gt;
 &lt;li&gt;You &lt;strong&gt;MUST&lt;/strong&gt; have a clustered index on the table that represents the &lt;strong&gt;expected sort order&lt;/strong&gt; of the data. In this case is was the tick data ascending.&lt;/li&gt;
