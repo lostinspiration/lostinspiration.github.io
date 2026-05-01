@@ -1,4 +1,294 @@
-<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>Lost Inspiration</title><description>A Memoir</description><link>https://www.kichka.dev/</link><language>en</language><item><title>Vibin Dirty – A Vibe Coding Experiment</title><link>https://www.kichka.dev/posts/vibin-dirty/</link><guid isPermaLink="true">https://www.kichka.dev/posts/vibin-dirty/</guid><description>♫ They see me vibin, codin / reviewers tryin to catch me vibin dirty / catch me vibin dirty ♫</description><pubDate>Wed, 25 Mar 2026 00:00:00 GMT</pubDate><content:encoded>&lt;p&gt;♫ They see me vibin, codin ♫&lt;br /&gt;
+<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>Lost Inspiration</title><description>A Memoir</description><link>https://www.kichka.dev/</link><language>en</language><item><title>Enterprise Source Control</title><link>https://www.kichka.dev/posts/source-control/</link><guid isPermaLink="true">https://www.kichka.dev/posts/source-control/</guid><description>Trunk-based development with short-lived feature branches</description><pubDate>Tue, 28 Apr 2026 00:00:00 GMT</pubDate><content:encoded>&lt;h1&gt;Source Control -- Philosophy&lt;/h1&gt;
+&lt;h2&gt;Version History&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;Small incremental changes get checked in and preserved&lt;/li&gt;
+&lt;li&gt;Each complete unit of work should be a check-in point&lt;/li&gt;
+&lt;li&gt;Can see changes to the code over time&lt;/li&gt;
+&lt;li&gt;Can compare files to see differences&lt;/li&gt;
+&lt;li&gt;Can rollback to a previous version if a regression was found or design decisions have changed&lt;/li&gt;
+&lt;li&gt;Most of the time you only have a single branch&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2&gt;Release Control&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;Branch per environment [Dev (main) | Stage | Prod]&lt;/li&gt;
+&lt;li&gt;Each branch up to Prod is used as a stepping stone in a promotion process&lt;/li&gt;
+&lt;li&gt;Should be validated in Dev before moving to Stage&lt;/li&gt;
+&lt;li&gt;Should be validated in Stage before moving to Prod&lt;/li&gt;
+&lt;li&gt;Never make changes in the Stage and Prod branches directly.&lt;/li&gt;
+&lt;li&gt;Cherry picking changes should be avoided if possible&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2&gt;When to Feature Flag&lt;/h2&gt;
+&lt;p&gt;If changes are expected to not release by the end of the sprint, feature flagging should be your next consideration so the new code path can be released during a normal release cycle and tested separate from the current flow&lt;/p&gt;
+&lt;hr /&gt;
+&lt;h1&gt;Using Git&lt;/h1&gt;
+&lt;h2&gt;Commands&lt;/h2&gt;
+&lt;h3&gt;clone&lt;/h3&gt;
+&lt;p&gt;&lt;code&gt;git clone https://repository.git&lt;/code&gt; -- Creates a local copy of a remote repository, downloading all files, branches, and commit history into a new directory on your machine. This is typically the first command you run when joining and existing project.&lt;/p&gt;
+&lt;h3&gt;branch&lt;/h3&gt;
+&lt;p&gt;&lt;code&gt;git branch&lt;/code&gt; -- Lists all local branches in the repository, marking the currently checked-out branch with an asterisk. Add &lt;code&gt;-a&lt;/code&gt; to include remote branches or &lt;code&gt;-v&lt;/code&gt; to see the latest commit on each.&lt;/p&gt;
+&lt;p&gt;&lt;code&gt;git branch branch_name&lt;/code&gt; -- Creates a new branch with the given name pointing at your current commit, but does not switch you to it. Follow with a &lt;code&gt;git switch branch_name&lt;/code&gt; to switch to it.&lt;/p&gt;
+&lt;p&gt;:::tip
+You can use the command &lt;code&gt;git switch -c branch_name&lt;/code&gt; to create and switch in one operation.
+:::&lt;/p&gt;
+&lt;p&gt;&lt;code&gt;git branch -D branch_name&lt;/code&gt; -- Force deletes the named local branch, even if it has unmerged changes that would otherwise be lost. Use lowercase &lt;code&gt;-d&lt;/code&gt; instead for a safer delete that blocks if the branch hasn&apos;t been merged.&lt;/p&gt;
+&lt;p&gt;:::note
+Because we leverage squash merges into main the &lt;code&gt;-d&lt;/code&gt; will always think that there are unmerged changes.
+:::&lt;/p&gt;
+&lt;h3&gt;switch&lt;/h3&gt;
+&lt;p&gt;&lt;code&gt;git switch branch_name&lt;/code&gt; -- Switches your working directory to the specified branch, updating your files to match that branch&apos;s latest commit. Add &lt;code&gt;-c&lt;/code&gt; to create and switch to a new branch in one step.&lt;/p&gt;
+&lt;h3&gt;status&lt;/h3&gt;
+&lt;p&gt;&lt;code&gt;git status&lt;/code&gt; -- Shows the current state of your working directory and staging area, including which files have been modified, staged for commit, or are untracked. It&apos;s the go-to command for checking where you stand before staging, committing or switching branches.&lt;/p&gt;
+&lt;h3&gt;add&lt;/h3&gt;
+&lt;p&gt;&lt;code&gt;git add .&lt;/code&gt; -- Stages all new and modified files in the current directory (and its subdirectories) for the next commit. Use with care, it can be quick to sweep in files you didn&apos;t intend to include, so a &lt;code&gt;git status&lt;/code&gt; check before hand is a good habit.&lt;/p&gt;
+&lt;p&gt;:::tip
+A clean &lt;code&gt;.gitignore&lt;/code&gt; will be your first line of defense. If &lt;code&gt;git status&lt;/code&gt; is consistently showing files you don&apos;t want to track, node_modules/, build artifacts, .env files, etc., add them to &lt;code&gt;.gitignore&lt;/code&gt;.
+:::&lt;/p&gt;
+&lt;h3&gt;commit&lt;/h3&gt;
+&lt;p&gt;&lt;code&gt;git commit -m &quot;message&quot;&lt;/code&gt; -- Records your staged changes to the local repository with a short inline message describing what changed.&lt;/p&gt;
+&lt;p&gt;:::tip
+Keep messages clear and meaningful (e.g., &quot;fix login redirect bug&quot; rather than &quot;stuff&quot;)&lt;/p&gt;
+&lt;p&gt;For anything needing more detail, omit the &lt;code&gt;-m&lt;/code&gt; flag to open your editor and write a full multi-line message with a subject line and body.
+:::&lt;/p&gt;
+&lt;h3&gt;push&lt;/h3&gt;
+&lt;p&gt;&lt;code&gt;git push --set-upstream origin branch_name&lt;/code&gt; -- Pushes a local branch to the remote (origin) for the first time and links it to a remote tracking branch of the same name, so future &lt;code&gt;git push&lt;/code&gt; and &lt;code&gt;git pull&lt;/code&gt; commands work without specifying the remote and branch.&lt;/p&gt;
+&lt;p&gt;:::tip
+To skip this entirely on new branches, set &lt;code&gt;git config --global push.autoSetupRemote true&lt;/code&gt;. With this enabled, a plain &lt;code&gt;git push&lt;/code&gt; on a brand new local branch will automatically create the matching upstream branch on origin and link them, so you do not have to remember the &lt;code&gt;--set-upstream&lt;/code&gt; flag.
+:::&lt;/p&gt;
+&lt;h3&gt;pull&lt;/h3&gt;
+&lt;p&gt;&lt;code&gt;git pull&lt;/code&gt; -- Fetches the latest changes from the remote branch and merges them into your current local branch in one step. Run it before starting new work and before pushing to minimize merge conflicts.&lt;/p&gt;
+&lt;p&gt;:::note
+Under the hood it&apos;s a &lt;code&gt;git fetch&lt;/code&gt; followed by a &lt;code&gt;git merge&lt;/code&gt;.
+:::&lt;/p&gt;
+&lt;h3&gt;restore&lt;/h3&gt;
+&lt;p&gt;&lt;code&gt;git restore file_name&lt;/code&gt; -- Discards local changes to the specified file, restoring it to match the latest commit on your current branch. Add &lt;code&gt;--staged&lt;/code&gt; to unstage a file without losing your edits, making it the modern replacement for &lt;code&gt;git reset HEAD file_name&lt;/code&gt;. You can also combine it with &lt;code&gt;--staged --worktree&lt;/code&gt; to fully revert a staged change.&lt;/p&gt;
+&lt;p&gt;:::note
+You&apos;ll often see &lt;code&gt;git checkout&lt;/code&gt; used for both branch switching and file restoration in older documentation, tutorials and forums. This double duty has caused enough pain that &lt;code&gt;git switch&lt;/code&gt; and &lt;code&gt;git restore&lt;/code&gt; were later introduced as safer more explicit alternatives.
+:::&lt;/p&gt;
+&lt;h3&gt;fetch&lt;/h3&gt;
+&lt;p&gt;&lt;code&gt;git fetch --prune&lt;/code&gt; -- Downloads the latest refs and objects from the remote and simultaneously removes any remote-tracking branches in your local repo whose upstream counterparts no longer exist. This is a great housekeeping command to run periodically so &lt;code&gt;git branch -a&lt;/code&gt; doesn&apos;t accumulate stale references to branches that have already been deleted on the remote.&lt;/p&gt;
+&lt;hr /&gt;
+&lt;h1&gt;Leveraging .gitignore&lt;/h1&gt;
+&lt;p&gt;Set this file up early, preferably before your first commit. Once a file is tracked, adding it to &lt;code&gt;.gitignore&lt;/code&gt; will not untrack it. You&apos;ll need to &lt;code&gt;git rm --cached file_name&lt;/code&gt; (&lt;em&gt;which removes it from the repo but keeps it locally&lt;/em&gt;) followed by a commit. Catching this early avoids the need for cleanups later.&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;# visual studio nonsense
+.vs/
+*.suo
+*.user
+*.userosscache
+*.csproj.user
+*.vspscc
+*.dbmdl
+*.jfm
+
+# artifacts
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+[Dd]ist/
+[Ll]ogs/
+[Pp]ublish/
+
+[Tt]est[Rr]esult*/
+
+[Pp]ackages/
+*.nupkg
+
+node_modules/
+
+*.publishsettings
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;:::tip
+Run &lt;code&gt;git status --ignored&lt;/code&gt; periodically to see what&apos;s actually being ignored.
+:::&lt;/p&gt;
+&lt;hr /&gt;
+&lt;h1&gt;Local Git Setup&lt;/h1&gt;
+&lt;p&gt;Because we will be leveraging feature branches for getting code into main, it will be common practice to push your feature branch to the server for a PR and review. Applying the following setting will make this practice easier and less verbose.&lt;/p&gt;
+&lt;p&gt;&lt;code&gt;git config --global push.autoSetupRemote true&lt;/code&gt;&lt;/p&gt;
+&lt;hr /&gt;
+&lt;h1&gt;Developer Workflow&lt;/h1&gt;
+&lt;h2&gt;Feature Coding&lt;/h2&gt;
+&lt;ol&gt;
+&lt;li&gt;Get the repository (&lt;em&gt;naturally skip this step if you already have it&lt;/em&gt;)&lt;/li&gt;
+&lt;/ol&gt;
+&lt;pre&gt;&lt;code&gt;git clone https://repository.git
+cd repository_name
+&lt;/code&gt;&lt;/pre&gt;
+&lt;ol&gt;
+&lt;li&gt;Get the latest version and create a new branch&lt;/li&gt;
+&lt;/ol&gt;
+&lt;pre&gt;&lt;code&gt;git switch main
+git pull
+git switch -c feature/cool-feature
+&lt;/code&gt;&lt;/pre&gt;
+&lt;ol&gt;
+&lt;li&gt;Work and commit loop&lt;/li&gt;
+&lt;/ol&gt;
+&lt;pre&gt;&lt;code&gt;git status
+git add .
+git commit -m &quot;descriptive commit message&quot;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;ol&gt;
+&lt;li&gt;Ready for review / deployment&lt;/li&gt;
+&lt;/ol&gt;
+&lt;pre&gt;&lt;code&gt;git push
+&lt;/code&gt;&lt;/pre&gt;
+&lt;ol&gt;
+&lt;li&gt;Navigate to GitHub and open a pull request using your new branch&lt;/li&gt;
+&lt;li&gt;Get review and perform a &lt;code&gt;squash merge&lt;/code&gt; when approved. (&lt;em&gt;Once the PR is approved the branch on the server will be automatically cleaned up&lt;/em&gt;)&lt;/li&gt;
+&lt;li&gt;Reset for next feature / cleanup&lt;/li&gt;
+&lt;/ol&gt;
+&lt;pre&gt;&lt;code&gt;git switch main
+git pull
+git branch -D feature/cool-feature
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h2&gt;Long Running Branches&lt;/h2&gt;
+&lt;p&gt;If a feature branch lives more than a day or two, main may have moved forward and you will want to pull those changes in to avoid painful merge later.&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;git switch feature/cool-feature
+git pull origin main
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h2&gt;Code Promotion&lt;/h2&gt;
+&lt;p&gt;Code promotion is handled through PRs between &lt;code&gt;main -&amp;gt; stage&lt;/code&gt; and &lt;code&gt;stage -&amp;gt; prod&lt;/code&gt;. With these PRs, the source is enforced such that you cannot accidentally merge from some other branch into stage or prod.&lt;/p&gt;
+&lt;p&gt;You typically want to perform a &lt;code&gt;merge commit&lt;/code&gt; so that the git history matches as you move between main, stage, and prod.&lt;/p&gt;
+&lt;hr /&gt;
+&lt;h1&gt;Git Gotchas!&lt;/h1&gt;
+&lt;h2&gt;Changes on main...&lt;/h2&gt;
+&lt;p&gt;If you made changes on main only to remember that force pushes have been disabled, you can create a branch with your existing changes the same way you would otherwise, and your existing changes will carry over. From here you can commit and go through the rest of the process.&lt;/p&gt;
+&lt;h3&gt;Working on the wrong branch&lt;/h3&gt;
+&lt;p&gt;If you have uncomitted changes, create a new branch, make your commit and work as normal. You can then discard any changes on main.&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;git switch -c feature/cool-feature
+git status
+git add .
+git commit -m &quot;...&quot;
+git push
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h3&gt;You&apos;re on main with commits that should be on a branch&lt;/h3&gt;
+&lt;p&gt;If you already have commits, the trick is to create a new branch, switch back to main and reset back to match the remote.&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;git switch -c feature/cool-feature
+git switch main
+git reset --hard origin/main
+git switch feature/cool-feature
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h2&gt;PR has a merge conflict&lt;/h2&gt;
+&lt;p&gt;Someone merged to main after you branched, and now your PR shows conflicts. Resolve them locally on your feature branch.&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;Get the latest changes into your branch&lt;/li&gt;
+&lt;/ol&gt;
+&lt;pre&gt;&lt;code&gt;git switch feature/cool-feature
+git pull origin main
+&lt;/code&gt;&lt;/pre&gt;
+&lt;ol&gt;
+&lt;li&gt;Resolve any conflicts in your editor&lt;/li&gt;
+&lt;li&gt;Push them back to the server. The PR will automatically update.&lt;/li&gt;
+&lt;/ol&gt;
+&lt;pre&gt;&lt;code&gt;git status
+git add .
+git commit -m &quot;...&quot;
+git push
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h2&gt;Need to undo a commit that&apos;s already pushed&lt;/h2&gt;
+&lt;p&gt;&lt;strong&gt;DO NOT&lt;/strong&gt; &lt;code&gt;git reset&lt;/code&gt; on anything that has been pushed. It rewrites history and will cause problems for anyone else who has pulled. Instead we want to use &lt;code&gt;git revert&lt;/code&gt; instead, which creates a new commit that undoes the changes from a previous one.&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;git revert commit_sha
+git push
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h2&gt;Where did my changes go? (reflog safety net)&lt;/h2&gt;
+&lt;p&gt;If you ever thing you have lost commits due to a bad reset, rebase, or force delete, check the reflog.&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;git reflog
+git checkout commit_sha
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;:::note
+Git keeps a log of every HEAD movement for roughly 90 days, so almost nothing is truly lost as long as the commit existed at some point. Find the SHA from before things went wrong, check it out, and create a branch from it to preserve the work.
+:::&lt;/p&gt;
+&lt;hr /&gt;
+&lt;h1&gt;GitHub Setup&lt;/h1&gt;
+&lt;h2&gt;Branch Source Enforcement Workflows&lt;/h2&gt;
+&lt;p&gt;Create a repository named &lt;code&gt;gh-workflows&lt;/code&gt;, or a name of your choosing, to store these global workflows.&lt;/p&gt;
+&lt;p&gt;Under the repository &lt;code&gt;Settings &amp;gt; Actions &amp;gt; General #Access&lt;/code&gt; select the appropriate access level, either org or enterprise depending on your needs.
+This step is critical, otherwise other repositories will not be able to leverage these workflows, in addition to them not being available to select
+within the ruleset settings.&lt;/p&gt;
+&lt;h3&gt;Workflows&lt;/h3&gt;
+&lt;p&gt;&lt;code&gt;enforce-stage-source.yml&lt;/code&gt;&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;name: Enforce stage source
+on:
+  pull_request: {}
+
+jobs:
+  check-source:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate source branch
+        run: |
+          if [[ &quot;${{ github.head_ref }}&quot; != &quot;main&quot; ]]; then
+            echo &quot;::error::Stage PRs must come from main, not ${{ github.head_ref }}&quot;
+            exit 1
+          fi
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;&lt;code&gt;enforce-prod-source.yml&lt;/code&gt;&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;name: Enforce production source
+on:
+  pull_request: {}
+
+jobs:
+  check-source:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate source branch
+        run: |
+          if [[ &quot;${{ github.head_ref }}&quot; != &quot;stage&quot; ]]; then
+            echo &quot;::error::Production PRs must come from stage, not ${{ github.head_ref }}&quot;
+            exit 1
+          fi
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h2&gt;Rulesets&lt;/h2&gt;
+&lt;p&gt;These rulesets can be configured at the org or enterprise level as you see fit.&lt;/p&gt;
+&lt;h3&gt;Protect Main Branches&lt;/h3&gt;
+&lt;p&gt;&lt;strong&gt;Target repositories&lt;/strong&gt;: All repositories&lt;br /&gt;
+&lt;strong&gt;Target branches&lt;/strong&gt;: Default&lt;br /&gt;
+&lt;strong&gt;Restrict deletions&lt;/strong&gt;: Yes&lt;br /&gt;
+&lt;strong&gt;Require pull request before merging&lt;/strong&gt;: Yes&lt;br /&gt;
+ &lt;strong&gt;Required approvals&lt;/strong&gt;: 0&lt;br /&gt;
+ &lt;strong&gt;Dismiss stale pull request approvals when new commits are pushed&lt;/strong&gt;: Yes&lt;br /&gt;
+ &lt;strong&gt;Allowed merge methods&lt;/strong&gt;: Squash&lt;br /&gt;
+&lt;strong&gt;Block force pushes&lt;/strong&gt;: Yes&lt;br /&gt;
+&lt;strong&gt;Require code scanning results&lt;/strong&gt;: Yes&lt;/p&gt;
+&lt;h3&gt;Protect Stage Branches&lt;/h3&gt;
+&lt;p&gt;&lt;strong&gt;Target repositories&lt;/strong&gt;: All repositories&lt;br /&gt;
+&lt;strong&gt;Target branches&lt;/strong&gt;: stage&lt;br /&gt;
+&lt;strong&gt;Restrict deletions&lt;/strong&gt;: Yes&lt;br /&gt;
+&lt;strong&gt;Require pull request before merging&lt;/strong&gt;: Yes&lt;br /&gt;
+ &lt;strong&gt;Required approvals&lt;/strong&gt;: 0&lt;br /&gt;
+ &lt;strong&gt;Dismiss stale pull request approvals when new commits are pushed&lt;/strong&gt;: Yes&lt;br /&gt;
+ &lt;strong&gt;Allowed merge methods&lt;/strong&gt;: Merge&lt;br /&gt;
+&lt;strong&gt;Block force pushes&lt;/strong&gt;: Yes&lt;br /&gt;
+&lt;strong&gt;Require workflows to pass before merging&lt;/strong&gt;: Yes&lt;br /&gt;
+ &lt;strong&gt;Do not require workflows on creation&lt;/strong&gt;: Yes&lt;br /&gt;
+ &lt;strong&gt;Enforce stage source&lt;/strong&gt;&lt;br /&gt;
+  1. Add workflow&lt;br /&gt;
+  2. Select &lt;code&gt;gh-workflows&lt;/code&gt; repository&lt;br /&gt;
+  3. Select &lt;code&gt;main&lt;/code&gt; branch&lt;br /&gt;
+  4. Enter path to &lt;code&gt;enforce-stage-source.yml&lt;/code&gt; file&lt;/p&gt;
+&lt;h3&gt;Protect Main Branches&lt;/h3&gt;
+&lt;p&gt;&lt;strong&gt;Target repositories&lt;/strong&gt;: All repositories&lt;br /&gt;
+&lt;strong&gt;Target branches&lt;/strong&gt;: prod&lt;br /&gt;
+&lt;strong&gt;Restrict deletions&lt;/strong&gt;: Yes&lt;br /&gt;
+&lt;strong&gt;Require pull request before merging&lt;/strong&gt;: Yes&lt;br /&gt;
+ &lt;strong&gt;Required approvals&lt;/strong&gt;: 0&lt;br /&gt;
+ &lt;strong&gt;Dismiss stale pull request approvals when new commits are pushed&lt;/strong&gt;: Yes&lt;br /&gt;
+ &lt;strong&gt;Allowed merge methods&lt;/strong&gt;: Merge&lt;br /&gt;
+&lt;strong&gt;Block force pushes&lt;/strong&gt;: Yes&lt;br /&gt;
+&lt;strong&gt;Require workflows to pass before merging&lt;/strong&gt;: Yes&lt;br /&gt;
+ &lt;strong&gt;Do not require workflows on creation&lt;/strong&gt;: Yes&lt;br /&gt;
+ &lt;strong&gt;Enforce production source&lt;/strong&gt;&lt;br /&gt;
+  1. Add workflow&lt;br /&gt;
+  2. Select &lt;code&gt;gh-workflows&lt;/code&gt; repository&lt;br /&gt;
+  3. Select &lt;code&gt;main&lt;/code&gt; branch&lt;br /&gt;
+  4. Enter path to &lt;code&gt;enforce-prod-source.yml&lt;/code&gt; file&lt;/p&gt;
+&lt;h2&gt;Repository Level Settings&lt;/h2&gt;
+&lt;p&gt;To keep each repository tidy, enable the following setting. It will automatically delete feature branches upon successful
+merge of a PR.&lt;/p&gt;
+&lt;p&gt;Under &lt;code&gt;Settings &amp;gt; General #Pull Requests&lt;/code&gt;&lt;br /&gt;
+&lt;strong&gt;Automatically delete head branches&lt;/strong&gt;: Yes&lt;/p&gt;
+&lt;p&gt;~ SK&lt;/p&gt;
+</content:encoded></item><item><title>Vibin Dirty – A Vibe Coding Experiment</title><link>https://www.kichka.dev/posts/vibin-dirty/</link><guid isPermaLink="true">https://www.kichka.dev/posts/vibin-dirty/</guid><description>♫ They see me vibin, codin / reviewers tryin to catch me vibin dirty / catch me vibin dirty ♫</description><pubDate>Wed, 25 Mar 2026 00:00:00 GMT</pubDate><content:encoded>&lt;p&gt;♫ They see me vibin, codin ♫&lt;br /&gt;
 ♫ Reviewers tryin to catch me vibin dirty, catch me vibin dirty ♫&lt;/p&gt;
 &lt;p&gt;It started out as a normal &quot;&lt;em&gt;Play Sunday&lt;/em&gt;&quot;. Drop kiddo off at the parents, brunch with the wife, see play at Playhouse Square, back to the parents for dinner and to get kiddo.&lt;/p&gt;
 &lt;p&gt;On the way to brunch, I was complaining about needing to sign back up for Facebook just to get notifications and communication for the school district which lead into having a billion apps for all the notifications I like to see. Ring and Nextdoor for crime and safety, CodeRed for county alerts, NWS for severe weather. I jokingly said that &quot;&lt;em&gt;I should just vibe code something to aggregate everything&lt;/em&gt;&quot;, to which she responded &quot;&lt;em&gt;You should&lt;/em&gt;&quot;.&lt;/p&gt;
